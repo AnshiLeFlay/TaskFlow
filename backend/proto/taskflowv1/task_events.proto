@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package taskflow.v1;
+
+option go_package = "github.com/example/taskflow/backend/proto/taskflowv1";
+
+import "google/protobuf/timestamp.proto";
+
+// TaskEvents exposes the same task domain events that are broadcast to the
+// project's WebSocket subscribers. The caller must be authorized for the
+// requested project by the server interceptor.
+service TaskEvents {
+  rpc Subscribe(SubscribeRequest) returns (stream TaskEvent);
+}
+
+message SubscribeRequest {
+  string project_id = 1;
+}
+
+message TaskEvent {
+  string id = 1;
+  // Domain event name, for example task.transitioned, task.updated, or
+  // comment.created.
+  string type = 2;
+  string project_id = 3;
+  string board_id = 4;
+  string task_id = 5;
+  string actor_id = 6;
+  string from_status_id = 7;
+  string to_status_id = 8;
+  google.protobuf.Timestamp occurred_at = 9;
+  // JSON encoding of the domain event's payload map. It is "{}" when the
+  // event has no additional payload.
+  string payload_json = 10;
+}

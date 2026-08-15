@@ -1,0 +1,22 @@
+.env
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Go
+backend/bin/
+backend/coverage.out
+backend/coverage.html
+
+# Node / Playwright
+frontend/node_modules/
+frontend/dist/
+e2e/node_modules/
+e2e/test-results/
+e2e/playwright-report/
+e2e/blob-report/
+
+# Local infrastructure
+postgres-data/
+

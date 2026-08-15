@@ -1,0 +1,1147 @@
+openapi: 3.0.3
+info:
+  title: TaskFlow REST API
+  version: 1.0.0
+  description: |
+    REST contract for the TaskFlow MVP. Authentication is delegated to
+    Keycloak; protected operations require its access token in the Bearer
+    authorization header. JSON property names use snake_case.
+servers:
+  - url: /
+    description: Current TaskFlow server
+tags:
+  - name: System
+  - name: Users
+  - name: Projects
+  - name: Boards
+  - name: Workflow
+  - name: Tasks
+  - name: Realtime
+security:
+  - bearerAuth: []
+
+paths:
+  /healthz:
+    get:
+      tags: [System]
+      operationId: getLiveness
+      summary: Liveness probe
+      security: []
+      responses:
+        '200':
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LivenessStatus'
+
+  /readyz:
+    get:
+      tags: [System]
+      operationId: getReadiness
+      summary: Readiness probe
+      security: []
+      responses:
+        '200':
+          description: Service and required dependencies are ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessStatus'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/me:
+    get:
+      tags: [Users]
+      operationId: getCurrentUser
+      summary: Get the authenticated user
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/projects:
+    get:
+      tags: [Projects]
+      operationId: listProjects
+      summary: List projects visible to the current user
+      responses:
+        '200':
+          description: Project collection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Projects]
+      operationId: createProject
+      summary: Create a project
+      description: The current user becomes the project owner and an admin member.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProjectRequest'
+      responses:
+        '201':
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/projects/{projectId}/members:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      tags: [Projects]
+      operationId: addProjectMember
+      summary: Add a member to a project
+      description: Requires project admin privileges.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddProjectMemberRequest'
+      responses:
+        '201':
+          description: Member added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectMember'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/projects/{projectId}/boards:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [Boards]
+      operationId: listProjectBoards
+      summary: List boards in a project
+      responses:
+        '200':
+          description: Board collection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BoardList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Boards]
+      operationId: createBoard
+      summary: Create a board in a project
+      description: Requires project admin privileges.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBoardRequest'
+      responses:
+        '201':
+          description: Board created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BoardDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/boards/{boardId}:
+    parameters:
+      - $ref: '#/components/parameters/BoardId'
+    get:
+      tags: [Boards]
+      operationId: getBoard
+      summary: Get a board with its statuses, tasks, and workflow rules
+      responses:
+        '200':
+          description: Complete board state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BoardDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/boards/{boardId}/statuses:
+    parameters:
+      - $ref: '#/components/parameters/BoardId'
+    post:
+      tags: [Workflow]
+      operationId: createStatus
+      summary: Add a status column to a board
+      description: Requires project admin privileges.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStatusRequest'
+      responses:
+        '201':
+          description: Status created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/statuses/{statusId}:
+    parameters:
+      - $ref: '#/components/parameters/StatusId'
+    patch:
+      tags: [Workflow]
+      operationId: updateStatus
+      summary: Rename or reorder a status
+      description: Requires project admin privileges.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateStatusRequest'
+      responses:
+        '200':
+          description: Status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      tags: [Workflow]
+      operationId: deleteStatus
+      summary: Delete an unused status
+      description: Requires project admin privileges. A status referenced by tasks or rules cannot be deleted.
+      responses:
+        '204':
+          description: Status deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/boards/{boardId}/rules:
+    parameters:
+      - $ref: '#/components/parameters/BoardId'
+    post:
+      tags: [Workflow]
+      operationId: createWorkflowRule
+      summary: Add an allowed transition and its conditions
+      description: Requires project admin privileges.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkflowRuleRequest'
+      responses:
+        '201':
+          description: Workflow rule created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowRule'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/rules/{ruleId}:
+    parameters:
+      - $ref: '#/components/parameters/RuleId'
+    patch:
+      tags: [Workflow]
+      operationId: updateWorkflowRule
+      summary: Update a workflow transition rule
+      description: Requires project admin privileges.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWorkflowRuleRequest'
+      responses:
+        '200':
+          description: Workflow rule updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowRule'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      tags: [Workflow]
+      operationId: deleteWorkflowRule
+      summary: Delete a workflow transition rule
+      description: Requires project admin privileges.
+      responses:
+        '204':
+          description: Workflow rule deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/boards/{boardId}/tasks:
+    parameters:
+      - $ref: '#/components/parameters/BoardId'
+    get:
+      tags: [Tasks]
+      operationId: listBoardTasks
+      summary: List tasks on a board
+      responses:
+        '200':
+          description: Task collection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Tasks]
+      operationId: createTask
+      summary: Create a task on a board
+      description: Viewers cannot create tasks. If status_id is omitted, the first status is used.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTaskRequest'
+      responses:
+        '201':
+          description: Task created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/tasks/{taskId}:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    patch:
+      tags: [Tasks]
+      operationId: updateTask
+      summary: Update task details or assignment
+      description: Status changes must use the transition endpoint so workflow rules are always enforced.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTaskRequest'
+      responses:
+        '200':
+          description: Task updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/tasks/{taskId}/comments:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    post:
+      tags: [Tasks]
+      operationId: createTaskComment
+      summary: Add a comment to a task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCommentRequest'
+      responses:
+        '201':
+          description: Comment created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/tasks/{taskId}/transition:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    post:
+      tags: [Tasks]
+      operationId: transitionTask
+      summary: Move a task to another status
+      description: |
+        Atomically validates the configured rule, moves the task, and publishes
+        a task.transitioned domain event over WebSocket and gRPC. A missing
+        transition or an unmet condition is returned as a conflict.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransitionTaskRequest'
+      responses:
+        '200':
+          description: Task transitioned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/TransitionRejected'
+
+  /ws:
+    get:
+      tags: [Realtime]
+      operationId: connectWebSocket
+      summary: Open an authenticated WebSocket event stream
+      description: |
+        Upgrade the connection to WebSocket. Without `project_id`, the stream
+        sends TaskEvent JSON objects for every project visible to the
+        authenticated user and re-checks membership for every event. With
+        `project_id`, the upgrade is authorized and the stream is restricted to
+        that project. Its first frame is a ConnectedEvent containing the initial
+        project IDs. Browsers may pass the Keycloak access token in the query
+        because the WebSocket API cannot set an Authorization header.
+      security: []
+      parameters:
+        - name: token
+          in: query
+          required: true
+          description: Keycloak JWT access token
+          schema:
+            type: string
+        - name: project_id
+          in: query
+          required: false
+          description: Optional project scope; membership is required.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '101':
+          description: WebSocket protocol selected
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Keycloak access token
+
+  parameters:
+    ProjectId:
+      name: projectId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    BoardId:
+      name: boardId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    StatusId:
+      name: statusId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    RuleId:
+      name: ruleId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    TaskId:
+      name: taskId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Request body, path parameter, or query parameter is invalid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Access token is missing, expired, or invalid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: The user is not a project member or does not have the required role
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Requested resource was not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Operation conflicts with current resource state
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    TransitionRejected:
+      description: Transition does not exist or one or more configured conditions failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            requires_comment:
+              value:
+                error:
+                  code: transition_not_allowed
+                  message: 'transition not allowed: at least one comment is required'
+    ServiceUnavailable:
+      description: Service is not ready
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/NotReadyStatus'
+
+  schemas:
+    LivenessStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+      additionalProperties: false
+    ReadinessStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ready]
+      additionalProperties: false
+    NotReadyStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [not_ready]
+      additionalProperties: false
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/Error'
+      additionalProperties: false
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: invalid_input
+        message:
+          type: string
+          example: name is required
+        details:
+          type: object
+          additionalProperties: true
+      additionalProperties: false
+
+    ProjectRole:
+      type: string
+      enum: [admin, member, viewer]
+
+    User:
+      type: object
+      required: [id, username, email, roles]
+      properties:
+        id:
+          type: string
+          description: Keycloak subject identifier
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        roles:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+      additionalProperties: false
+
+    Project:
+      type: object
+      required: [id, name, owner_id, role, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        owner_id:
+          type: string
+        role:
+          $ref: '#/components/schemas/ProjectRole'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    ProjectList:
+      type: object
+      required: [projects]
+      properties:
+        projects:
+          type: array
+          items:
+            $ref: '#/components/schemas/Project'
+      additionalProperties: false
+    CreateProjectRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        description:
+          type: string
+          maxLength: 4000
+      additionalProperties: false
+
+    ProjectMember:
+      type: object
+      required: [project_id, user_id, role, created_at]
+      properties:
+        project_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+        role:
+          $ref: '#/components/schemas/ProjectRole'
+        user:
+          $ref: '#/components/schemas/User'
+        created_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    AddProjectMemberRequest:
+      type: object
+      required: [user_id, role]
+      properties:
+        user_id:
+          type: string
+          minLength: 1
+          description: Keycloak subject identifier
+        role:
+          $ref: '#/components/schemas/ProjectRole'
+      additionalProperties: false
+
+    Board:
+      type: object
+      required: [id, project_id, name, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    BoardDetail:
+      allOf:
+        - $ref: '#/components/schemas/Board'
+        - type: object
+          required: [statuses, tasks, rules]
+          properties:
+            statuses:
+              type: array
+              items:
+                $ref: '#/components/schemas/Status'
+            tasks:
+              type: array
+              items:
+                $ref: '#/components/schemas/Task'
+            rules:
+              type: array
+              items:
+                $ref: '#/components/schemas/WorkflowRule'
+    BoardList:
+      type: object
+      required: [boards]
+      properties:
+        boards:
+          type: array
+          items:
+            $ref: '#/components/schemas/Board'
+      additionalProperties: false
+    CreateBoardRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        description:
+          type: string
+          maxLength: 4000
+        statuses:
+          type: array
+          description: Optional initial columns. If omitted, the service creates its default workflow.
+          items:
+            $ref: '#/components/schemas/CreateStatusRequest'
+      additionalProperties: false
+
+    Status:
+      type: object
+      required: [id, board_id, name, position, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        board_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        position:
+          type: integer
+          format: int32
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    CreateStatusRequest:
+      type: object
+      required: [name, position]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        position:
+          type: integer
+          format: int32
+          minimum: 0
+      additionalProperties: false
+    UpdateStatusRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        position:
+          type: integer
+          format: int32
+          minimum: 0
+      additionalProperties: false
+
+    WorkflowConditions:
+      type: object
+      properties:
+        author_only:
+          type: boolean
+          default: false
+        assignee_only:
+          type: boolean
+          default: false
+        requires_comment:
+          type: boolean
+          default: false
+        project_owner_only:
+          type: boolean
+          default: false
+        allowed_roles:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/ProjectRole'
+          default: []
+      additionalProperties: false
+    WorkflowRule:
+      type: object
+      required: [id, board_id, from_status_id, to_status_id, conditions, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        board_id:
+          type: string
+          format: uuid
+        from_status_id:
+          type: string
+          format: uuid
+        to_status_id:
+          type: string
+          format: uuid
+        conditions:
+          $ref: '#/components/schemas/WorkflowConditions'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    CreateWorkflowRuleRequest:
+      type: object
+      required: [from_status_id, to_status_id, conditions]
+      properties:
+        from_status_id:
+          type: string
+          format: uuid
+        to_status_id:
+          type: string
+          format: uuid
+        conditions:
+          $ref: '#/components/schemas/WorkflowConditions'
+      additionalProperties: false
+    UpdateWorkflowRuleRequest:
+      type: object
+      minProperties: 1
+      properties:
+        from_status_id:
+          type: string
+          format: uuid
+        to_status_id:
+          type: string
+          format: uuid
+        conditions:
+          $ref: '#/components/schemas/WorkflowConditions'
+      additionalProperties: false
+
+    Task:
+      type: object
+      required: [id, board_id, status_id, title, description, author_id, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        board_id:
+          type: string
+          format: uuid
+        status_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        author_id:
+          type: string
+        assignee_id:
+          type: string
+          nullable: true
+        deadline:
+          type: string
+          format: date-time
+          nullable: true
+        comments:
+          type: array
+          description: Persisted task activity, ordered by creation time.
+          items:
+            $ref: '#/components/schemas/Comment'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    TaskList:
+      type: object
+      required: [tasks]
+      properties:
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/Task'
+      additionalProperties: false
+    CreateTaskRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 300
+        description:
+          type: string
+          maxLength: 20000
+        assignee_id:
+          type: string
+          nullable: true
+        deadline:
+          type: string
+          format: date-time
+          nullable: true
+        status_id:
+          type: string
+          format: uuid
+      additionalProperties: false
+    UpdateTaskRequest:
+      type: object
+      minProperties: 1
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 300
+        description:
+          type: string
+          maxLength: 20000
+        assignee_id:
+          type: string
+          nullable: true
+        deadline:
+          type: string
+          format: date-time
+          nullable: true
+      additionalProperties: false
+    TransitionTaskRequest:
+      type: object
+      required: [target_status_id]
+      properties:
+        target_status_id:
+          type: string
+          format: uuid
+      additionalProperties: false
+
+    Comment:
+      type: object
+      required: [id, task_id, author_id, body, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        author_id:
+          type: string
+        body:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+    CreateCommentRequest:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 10000
+      additionalProperties: false
+
+    TaskEvent:
+      type: object
+      required: [id, type, project_id, board_id, task_id, actor_id, occurred_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [task.transitioned, task.updated, comment.created]
+        project_id:
+          type: string
+          format: uuid
+        board_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        actor_id:
+          type: string
+        from_status_id:
+          type: string
+          format: uuid
+        to_status_id:
+          type: string
+          format: uuid
+        occurred_at:
+          type: string
+          format: date-time
+        payload:
+          type: object
+          description: Event-specific data, such as the updated task or new comment
+          additionalProperties: true
+      additionalProperties: false
+    ConnectedEvent:
+      type: object
+      required: [type, project_ids]
+      properties:
+        type:
+          type: string
+          enum: [connected]
+        project_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+      additionalProperties: false

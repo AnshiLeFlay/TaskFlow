@@ -1,0 +1,912 @@
+basePath: /
+definitions:
+  domain.Board:
+    properties:
+      created_at:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      project_id:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  domain.BoardAggregate:
+    properties:
+      created_at:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      project_id:
+        type: string
+      rules:
+        items:
+          $ref: '#/definitions/domain.TransitionRule'
+        type: array
+      statuses:
+        items:
+          $ref: '#/definitions/domain.Status'
+        type: array
+      tasks:
+        items:
+          $ref: '#/definitions/domain.Task'
+        type: array
+      updated_at:
+        type: string
+    type: object
+  domain.Comment:
+    properties:
+      author_id:
+        type: string
+      body:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      task_id:
+        type: string
+    type: object
+  domain.Member:
+    properties:
+      created_at:
+        type: string
+      project_id:
+        type: string
+      role:
+        $ref: '#/definitions/domain.ProjectRole'
+      user_id:
+        type: string
+    type: object
+  domain.Project:
+    properties:
+      created_at:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      owner_id:
+        type: string
+      role:
+        $ref: '#/definitions/domain.ProjectRole'
+      updated_at:
+        type: string
+    type: object
+  domain.ProjectRole:
+    enum:
+    - admin
+    - member
+    - viewer
+    type: string
+    x-enum-varnames:
+    - RoleAdmin
+    - RoleMember
+    - RoleViewer
+  domain.RuleConditions:
+    properties:
+      allowed_roles:
+        items:
+          $ref: '#/definitions/domain.ProjectRole'
+        type: array
+      assignee_only:
+        type: boolean
+      author_only:
+        type: boolean
+      project_owner_only:
+        type: boolean
+      requires_comment:
+        type: boolean
+    type: object
+  domain.Status:
+    properties:
+      board_id:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      position:
+        type: integer
+      updated_at:
+        type: string
+    type: object
+  domain.Task:
+    properties:
+      assignee_id:
+        type: string
+      author_id:
+        type: string
+      board_id:
+        type: string
+      comments:
+        items:
+          $ref: '#/definitions/domain.Comment'
+        type: array
+      created_at:
+        type: string
+      deadline:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      status_id:
+        type: string
+      title:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  domain.TransitionRule:
+    properties:
+      board_id:
+        type: string
+      conditions:
+        $ref: '#/definitions/domain.RuleConditions'
+      created_at:
+        type: string
+      from_status_id:
+        type: string
+      id:
+        type: string
+      to_status_id:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  domain.User:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+      roles:
+        items:
+          type: string
+        type: array
+      username:
+        type: string
+    type: object
+  httpapi.AddMemberRequest:
+    properties:
+      role:
+        $ref: '#/definitions/domain.ProjectRole'
+      user_id:
+        type: string
+    type: object
+  httpapi.CreateBoardRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      statuses:
+        items:
+          $ref: '#/definitions/httpapi.StatusRequest'
+        type: array
+    type: object
+  httpapi.CreateCommentRequest:
+    properties:
+      body:
+        type: string
+    type: object
+  httpapi.CreateProjectRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+    type: object
+  httpapi.CreateRuleRequest:
+    properties:
+      conditions:
+        $ref: '#/definitions/domain.RuleConditions'
+      from_status_id:
+        type: string
+      to_status_id:
+        type: string
+    type: object
+  httpapi.CreateTaskRequest:
+    properties:
+      assignee_id:
+        type: string
+      deadline:
+        type: string
+      description:
+        type: string
+      status_id:
+        type: string
+      title:
+        type: string
+    type: object
+  httpapi.StatusRequest:
+    properties:
+      name:
+        type: string
+      position:
+        type: integer
+    type: object
+  httpapi.TransitionTaskRequest:
+    properties:
+      target_status_id:
+        type: string
+    type: object
+  httpapi.UpdateRuleRequest:
+    properties:
+      conditions:
+        $ref: '#/definitions/domain.RuleConditions'
+      from_status_id:
+        type: string
+      to_status_id:
+        type: string
+    type: object
+  httpapi.UpdateStatusRequest:
+    properties:
+      name:
+        type: string
+      position:
+        type: integer
+    type: object
+  httpapi.UpdateTaskRequest:
+    properties:
+      assignee_id:
+        type: string
+      deadline:
+        type: string
+      description:
+        type: string
+      title:
+        type: string
+    type: object
+  httpapi.apiError:
+    properties:
+      code:
+        type: string
+      details:
+        additionalProperties: {}
+        type: object
+      message:
+        type: string
+    type: object
+  httpapi.errorEnvelope:
+    properties:
+      error:
+        $ref: '#/definitions/httpapi.apiError'
+    type: object
+info:
+  contact: {}
+  description: Configurable project boards and workflow transitions.
+  title: TaskFlow API
+  version: "1.0"
+paths:
+  /api/v1/boards/{boardId}:
+    get:
+      parameters:
+      - description: Board ID
+        in: path
+        name: boardId
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.BoardAggregate'
+      security:
+      - BearerAuth: []
+      summary: Return a board with statuses, rules, and tasks
+      tags:
+      - boards
+  /api/v1/boards/{boardId}/rules:
+    post:
+      parameters:
+      - description: Board ID
+        in: path
+        name: boardId
+        required: true
+        type: string
+      - description: Directed workflow edge and conditions
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httpapi.CreateRuleRequest'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/domain.TransitionRule'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Create a workflow transition rule
+      tags:
+      - workflow
+  /api/v1/boards/{boardId}/statuses:
+    post:
+      parameters:
+      - description: Board ID
+        in: path
+        name: boardId
+        required: true
+        type: string
+      - description: Status name and position
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httpapi.StatusRequest'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/domain.Status'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Create a board status
+      tags:
+      - workflow
+  /api/v1/boards/{boardId}/tasks:
+    get:
+      parameters:
+      - description: Board ID
+        in: path
+        name: boardId
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                $ref: '#/definitions/domain.Task'
+              type: array
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List board tasks
+      tags:
+      - tasks
+    post:
+      parameters:
+      - description: Board ID
+        in: path
+        name: boardId
+        required: true
+        type: string
+      - description: Task fields
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httpapi.CreateTaskRequest'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/domain.Task'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Create a task
+      tags:
+      - tasks
+  /api/v1/me:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.User'
+      security:
+      - BearerAuth: []
+      summary: Return the authenticated Keycloak user
+      tags:
+      - identity
+  /api/v1/projects:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                $ref: '#/definitions/domain.Project'
+              type: array
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List projects visible to the current user
+      tags:
+      - projects
+    post:
+      parameters:
+      - description: Project fields
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httpapi.CreateProjectRequest'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/domain.Project'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Create a project
+      tags:
+      - projects
+  /api/v1/projects/{projectId}/boards:
+    get:
+      parameters:
+      - description: Project ID
+        in: path
+        name: projectId
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                $ref: '#/definitions/domain.Board'
+              type: array
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List project boards
+      tags:
+      - boards
+    post:
+      parameters:
+      - description: Project ID
+        in: path
+        name: projectId
+        required: true
+        type: string
+      - description: Board fields and optional initial statuses
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httpapi.CreateBoardRequest'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/domain.BoardAggregate'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Create a board and its initial statuses
+      tags:
+      - boards
+  /api/v1/projects/{projectId}/members:
+    post:
+      parameters:
+      - description: Project ID
+        in: path
+        name: projectId
+        required: true
+        type: string
+      - description: Member and project role
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httpapi.AddMemberRequest'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/domain.Member'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Add or update a project member
+      tags:
+      - projects
+  /api/v1/rules/{ruleId}:
+    delete:
+      parameters:
+      - description: Rule ID
+        in: path
+        name: ruleId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      security:
+      - BearerAuth: []
+      summary: Delete a workflow transition rule
+      tags:
+      - workflow
+    patch:
+      parameters:
+      - description: Rule ID
+        in: path
+        name: ruleId
+        required: true
+        type: string
+      - description: Rule fields to change
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httpapi.UpdateRuleRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.TransitionRule'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Update a workflow transition rule
+      tags:
+      - workflow
+  /api/v1/statuses/{statusId}:
+    delete:
+      parameters:
+      - description: Status ID
+        in: path
+        name: statusId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      security:
+      - BearerAuth: []
+      summary: Delete an unused status
+      tags:
+      - workflow
+    patch:
+      parameters:
+      - description: Status ID
+        in: path
+        name: statusId
+        required: true
+        type: string
+      - description: Fields to change
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httpapi.UpdateStatusRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.Status'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Update a status
+      tags:
+      - workflow
+  /api/v1/tasks/{taskId}:
+    patch:
+      parameters:
+      - description: Task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Task fields to change
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httpapi.UpdateTaskRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.Task'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Update task fields except workflow status
+      tags:
+      - tasks
+  /api/v1/tasks/{taskId}/comments:
+    post:
+      parameters:
+      - description: Task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Comment body
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httpapi.CreateCommentRequest'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/domain.Comment'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Add a task comment
+      tags:
+      - tasks
+  /api/v1/tasks/{taskId}/transition:
+    post:
+      parameters:
+      - description: Task ID
+        in: path
+        name: taskId
+        required: true
+        type: string
+      - description: Target workflow status
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httpapi.TransitionTaskRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/domain.Task'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: Transition a task after evaluating its persisted workflow rule
+      tags:
+      - tasks
+  /healthz:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Process liveness
+      tags:
+      - operations
+  /readyz:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: PostgreSQL-backed readiness
+      tags:
+      - operations
+  /ws:
+    get:
+      parameters:
+      - description: Keycloak JWT access token
+        in: query
+        name: token
+        required: true
+        type: string
+      - description: Optional project scope
+        in: query
+        name: project_id
+        type: string
+      responses:
+        "101":
+          description: WebSocket protocol selected
+          schema:
+            type: string
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Open an authenticated task-event WebSocket stream
+      tags:
+      - realtime
+schemes:
+- http
+- https
+securityDefinitions:
+  BearerAuth:
+    description: 'Keycloak access token in the form: Bearer {token}'
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

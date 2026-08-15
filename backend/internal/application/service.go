@@ -1,0 +1,604 @@
+package application
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/example/taskflow/backend/internal/domain"
+	"github.com/google/uuid"
+)
+
+type Service struct {
+	repo      domain.Repository
+	publisher domain.EventPublisher
+	now       func() time.Time
+	newID     func() string
+}
+
+const (
+	maxProjectOrBoardNameLength = 160
+	maxProjectOrBoardDescLength = 4000
+	maxStatusNameLength         = 100
+	maxTaskTitleLength          = 300
+	maxTaskDescriptionLength    = 20000
+	maxCommentLength            = 10000
+)
+
+type Option func(*Service)
+
+func WithClock(now func() time.Time) Option   { return func(s *Service) { s.now = now } }
+func WithIDGenerator(fn func() string) Option { return func(s *Service) { s.newID = fn } }
+
+func NewService(repo domain.Repository, publisher domain.EventPublisher, opts ...Option) *Service {
+	if publisher == nil {
+		publisher = domain.NopPublisher{}
+	}
+	s := &Service{repo: repo, publisher: publisher, now: func() time.Time { return time.Now().UTC() }, newID: func() string { return uuid.NewString() }}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
+}
+
+type CreateProjectCommand struct {
+	Name        string
+	Description string
+}
+
+func (s *Service) CreateProject(ctx context.Context, actor domain.User, cmd CreateProjectCommand) (domain.Project, error) {
+	name := strings.TrimSpace(cmd.Name)
+	if name == "" {
+		return domain.Project{}, &domain.ValidationError{Field: "name", Message: "is required"}
+	}
+	if err := validateMaxLength("name", name, maxProjectOrBoardNameLength); err != nil {
+		return domain.Project{}, err
+	}
+	description := strings.TrimSpace(cmd.Description)
+	if err := validateMaxLength("description", description, maxProjectOrBoardDescLength); err != nil {
+		return domain.Project{}, err
+	}
+	now := s.now()
+	p := domain.Project{ID: s.newID(), Name: name, Description: description, OwnerID: actor.ID, Role: domain.RoleAdmin, CreatedAt: now, UpdatedAt: now}
+	m := domain.Member{ProjectID: p.ID, UserID: actor.ID, Role: domain.RoleAdmin, CreatedAt: now}
+	if err := s.repo.CreateProject(ctx, &p, m); err != nil {
+		return domain.Project{}, err
+	}
+	return p, nil
+}
+
+func (s *Service) ListProjects(ctx context.Context, actor domain.User) ([]domain.Project, error) {
+	return s.repo.ListProjects(ctx, actor.ID)
+}
+
+type AddMemberCommand struct {
+	UserID string
+	Role   domain.ProjectRole
+}
+
+func (s *Service) AddMember(ctx context.Context, actor domain.User, projectID string, cmd AddMemberCommand) (domain.Member, error) {
+	if _, err := s.requireRole(ctx, projectID, actor.ID, func(r domain.ProjectRole) bool { return r.CanManageMembers() }); err != nil {
+		return domain.Member{}, err
+	}
+	if strings.TrimSpace(cmd.UserID) == "" {
+		return domain.Member{}, &domain.ValidationError{Field: "user_id", Message: "is required"}
+	}
+	if !cmd.Role.Valid() {
+		return domain.Member{}, &domain.ValidationError{Field: "role", Message: "must be admin, member, or viewer"}
+	}
+	p, err := s.repo.GetProject(ctx, projectID)
+	if err != nil {
+		return domain.Member{}, err
+	}
+	if cmd.UserID == p.OwnerID {
+		return domain.Member{}, fmt.Errorf("%w: project owner role cannot be changed", domain.ErrConflict)
+	}
+	m := domain.Member{ProjectID: projectID, UserID: strings.TrimSpace(cmd.UserID), Role: cmd.Role, CreatedAt: s.now()}
+	if err := s.repo.UpsertMember(ctx, m); err != nil {
+		return domain.Member{}, err
+	}
+	return m, nil
+}
+
+type StatusInput struct {
+	Name     string
+	Position int
+}
+
+type CreateBoardCommand struct {
+	Name        string
+	Description string
+	Statuses    []StatusInput
+}
+
+func (s *Service) CreateBoard(ctx context.Context, actor domain.User, projectID string, cmd CreateBoardCommand) (domain.BoardAggregate, error) {
+	if _, err := s.requireRole(ctx, projectID, actor.ID, func(r domain.ProjectRole) bool { return r.CanManageWorkflow() }); err != nil {
+		return domain.BoardAggregate{}, err
+	}
+	name := strings.TrimSpace(cmd.Name)
+	if name == "" {
+		return domain.BoardAggregate{}, &domain.ValidationError{Field: "name", Message: "is required"}
+	}
+	if err := validateMaxLength("name", name, maxProjectOrBoardNameLength); err != nil {
+		return domain.BoardAggregate{}, err
+	}
+	description := strings.TrimSpace(cmd.Description)
+	if err := validateMaxLength("description", description, maxProjectOrBoardDescLength); err != nil {
+		return domain.BoardAggregate{}, err
+	}
+	now := s.now()
+	b := domain.Board{ID: s.newID(), ProjectID: projectID, Name: name, Description: description, CreatedAt: now, UpdatedAt: now}
+	inputs := cmd.Statuses
+	if len(inputs) == 0 {
+		inputs = []StatusInput{{Name: "To Do", Position: 0}, {Name: "In Progress", Position: 1}, {Name: "Done", Position: 2}}
+	}
+	statuses := make([]domain.Status, 0, len(inputs))
+	seenPositions := make(map[int]struct{}, len(inputs))
+	for i, in := range inputs {
+		statusName := strings.TrimSpace(in.Name)
+		if statusName == "" {
+			return domain.BoardAggregate{}, &domain.ValidationError{Field: fmt.Sprintf("statuses[%d].name", i), Message: "is required"}
+		}
+		if err := validateMaxLength(fmt.Sprintf("statuses[%d].name", i), statusName, maxStatusNameLength); err != nil {
+			return domain.BoardAggregate{}, err
+		}
+		position := in.Position
+		if position < 0 {
+			return domain.BoardAggregate{}, &domain.ValidationError{Field: fmt.Sprintf("statuses[%d].position", i), Message: "must be non-negative"}
+		}
+		if _, exists := seenPositions[position]; exists {
+			return domain.BoardAggregate{}, &domain.ValidationError{Field: "statuses", Message: "positions must be unique"}
+		}
+		seenPositions[position] = struct{}{}
+		statuses = append(statuses, domain.Status{ID: s.newID(), BoardID: b.ID, Name: statusName, Position: position, CreatedAt: now, UpdatedAt: now})
+	}
+	if err := s.repo.CreateBoard(ctx, &b, statuses); err != nil {
+		return domain.BoardAggregate{}, err
+	}
+	return domain.BoardAggregate{Board: b, Statuses: statuses, Tasks: []domain.Task{}, Rules: []domain.TransitionRule{}}, nil
+}
+
+func (s *Service) ListBoards(ctx context.Context, actor domain.User, projectID string) ([]domain.Board, error) {
+	if _, err := s.requireMember(ctx, projectID, actor.ID); err != nil {
+		return nil, err
+	}
+	return s.repo.ListBoards(ctx, projectID)
+}
+
+func (s *Service) GetBoard(ctx context.Context, actor domain.User, boardID string) (domain.BoardAggregate, error) {
+	b, _, err := s.authorizeBoard(ctx, actor.ID, boardID, nil)
+	if err != nil {
+		return domain.BoardAggregate{}, err
+	}
+	return s.repo.GetBoardAggregate(ctx, b.ID)
+}
+
+type CreateStatusCommand struct {
+	Name     string
+	Position int
+}
+
+func (s *Service) CreateStatus(ctx context.Context, actor domain.User, boardID string, cmd CreateStatusCommand) (domain.Status, error) {
+	b, _, err := s.authorizeBoard(ctx, actor.ID, boardID, func(r domain.ProjectRole) bool { return r.CanManageWorkflow() })
+	if err != nil {
+		return domain.Status{}, err
+	}
+	name := strings.TrimSpace(cmd.Name)
+	if name == "" {
+		return domain.Status{}, &domain.ValidationError{Field: "name", Message: "is required"}
+	}
+	if err := validateMaxLength("name", name, maxStatusNameLength); err != nil {
+		return domain.Status{}, err
+	}
+	if cmd.Position < 0 {
+		return domain.Status{}, &domain.ValidationError{Field: "position", Message: "must be non-negative"}
+	}
+	now := s.now()
+	status := domain.Status{ID: s.newID(), BoardID: b.ID, Name: name, Position: cmd.Position, CreatedAt: now, UpdatedAt: now}
+	if err := s.repo.CreateStatus(ctx, &status); err != nil {
+		return domain.Status{}, err
+	}
+	return status, nil
+}
+
+type UpdateStatusCommand struct {
+	Name     *string
+	Position *int
+}
+
+func (s *Service) UpdateStatus(ctx context.Context, actor domain.User, statusID string, cmd UpdateStatusCommand) (domain.Status, error) {
+	if cmd.Name == nil && cmd.Position == nil {
+		return domain.Status{}, &domain.ValidationError{Message: "at least one status field is required"}
+	}
+	status, err := s.repo.GetStatus(ctx, statusID)
+	if err != nil {
+		return domain.Status{}, err
+	}
+	if _, _, err := s.authorizeBoard(ctx, actor.ID, status.BoardID, func(r domain.ProjectRole) bool { return r.CanManageWorkflow() }); err != nil {
+		return domain.Status{}, err
+	}
+	if cmd.Name != nil {
+		status.Name = strings.TrimSpace(*cmd.Name)
+		if status.Name == "" {
+			return domain.Status{}, &domain.ValidationError{Field: "name", Message: "cannot be empty"}
+		}
+		if err := validateMaxLength("name", status.Name, maxStatusNameLength); err != nil {
+			return domain.Status{}, err
+		}
+	}
+	if cmd.Position != nil {
+		if *cmd.Position < 0 {
+			return domain.Status{}, &domain.ValidationError{Field: "position", Message: "must be non-negative"}
+		}
+		status.Position = *cmd.Position
+	}
+	status.UpdatedAt = s.now()
+	if err := s.repo.UpdateStatus(ctx, status); err != nil {
+		return domain.Status{}, err
+	}
+	return status, nil
+}
+
+func (s *Service) DeleteStatus(ctx context.Context, actor domain.User, statusID string) error {
+	status, err := s.repo.GetStatus(ctx, statusID)
+	if err != nil {
+		return err
+	}
+	if _, _, err := s.authorizeBoard(ctx, actor.ID, status.BoardID, func(r domain.ProjectRole) bool { return r.CanManageWorkflow() }); err != nil {
+		return err
+	}
+	return s.repo.DeleteStatus(ctx, statusID)
+}
+
+type CreateRuleCommand struct {
+	FromStatusID string
+	ToStatusID   string
+	Conditions   domain.RuleConditions
+}
+
+func (s *Service) CreateRule(ctx context.Context, actor domain.User, boardID string, cmd CreateRuleCommand) (domain.TransitionRule, error) {
+	b, _, err := s.authorizeBoard(ctx, actor.ID, boardID, func(r domain.ProjectRole) bool { return r.CanManageWorkflow() })
+	if err != nil {
+		return domain.TransitionRule{}, err
+	}
+	if err := s.validateRule(ctx, b.ID, cmd.FromStatusID, cmd.ToStatusID, cmd.Conditions); err != nil {
+		return domain.TransitionRule{}, err
+	}
+	now := s.now()
+	rule := domain.TransitionRule{ID: s.newID(), BoardID: b.ID, FromStatusID: cmd.FromStatusID, ToStatusID: cmd.ToStatusID, Conditions: cmd.Conditions, CreatedAt: now, UpdatedAt: now}
+	if err := s.repo.CreateRule(ctx, &rule); err != nil {
+		return domain.TransitionRule{}, err
+	}
+	return rule, nil
+}
+
+type UpdateRuleCommand struct {
+	FromStatusID *string
+	ToStatusID   *string
+	Conditions   *domain.RuleConditions
+}
+
+func (s *Service) UpdateRule(ctx context.Context, actor domain.User, ruleID string, cmd UpdateRuleCommand) (domain.TransitionRule, error) {
+	if cmd.FromStatusID == nil && cmd.ToStatusID == nil && cmd.Conditions == nil {
+		return domain.TransitionRule{}, &domain.ValidationError{Message: "at least one rule field is required"}
+	}
+	rule, err := s.repo.GetRule(ctx, ruleID)
+	if err != nil {
+		return domain.TransitionRule{}, err
+	}
+	if _, _, err := s.authorizeBoard(ctx, actor.ID, rule.BoardID, func(r domain.ProjectRole) bool { return r.CanManageWorkflow() }); err != nil {
+		return domain.TransitionRule{}, err
+	}
+	if cmd.FromStatusID != nil {
+		rule.FromStatusID = *cmd.FromStatusID
+	}
+	if cmd.ToStatusID != nil {
+		rule.ToStatusID = *cmd.ToStatusID
+	}
+	if cmd.Conditions != nil {
+		rule.Conditions = *cmd.Conditions
+	}
+	if err := s.validateRule(ctx, rule.BoardID, rule.FromStatusID, rule.ToStatusID, rule.Conditions); err != nil {
+		return domain.TransitionRule{}, err
+	}
+	rule.UpdatedAt = s.now()
+	if err := s.repo.UpdateRule(ctx, rule); err != nil {
+		return domain.TransitionRule{}, err
+	}
+	return rule, nil
+}
+
+func (s *Service) DeleteRule(ctx context.Context, actor domain.User, ruleID string) error {
+	rule, err := s.repo.GetRule(ctx, ruleID)
+	if err != nil {
+		return err
+	}
+	if _, _, err := s.authorizeBoard(ctx, actor.ID, rule.BoardID, func(r domain.ProjectRole) bool { return r.CanManageWorkflow() }); err != nil {
+		return err
+	}
+	return s.repo.DeleteRule(ctx, ruleID)
+}
+
+func (s *Service) ListTasks(ctx context.Context, actor domain.User, boardID string) ([]domain.Task, error) {
+	if _, _, err := s.authorizeBoard(ctx, actor.ID, boardID, nil); err != nil {
+		return nil, err
+	}
+	return s.repo.ListTasks(ctx, boardID)
+}
+
+type CreateTaskCommand struct {
+	Title       string
+	Description string
+	StatusID    string
+	AssigneeID  *string
+	Deadline    *time.Time
+}
+
+func (s *Service) CreateTask(ctx context.Context, actor domain.User, boardID string, cmd CreateTaskCommand) (domain.Task, error) {
+	b, _, err := s.authorizeBoard(ctx, actor.ID, boardID, func(r domain.ProjectRole) bool { return r.CanManageTasks() })
+	if err != nil {
+		return domain.Task{}, err
+	}
+	title := strings.TrimSpace(cmd.Title)
+	if title == "" {
+		return domain.Task{}, &domain.ValidationError{Field: "title", Message: "is required"}
+	}
+	if err := validateMaxLength("title", title, maxTaskTitleLength); err != nil {
+		return domain.Task{}, err
+	}
+	description := strings.TrimSpace(cmd.Description)
+	if err := validateMaxLength("description", description, maxTaskDescriptionLength); err != nil {
+		return domain.Task{}, err
+	}
+	statusID := cmd.StatusID
+	if statusID == "" {
+		agg, err := s.repo.GetBoardAggregate(ctx, boardID)
+		if err != nil {
+			return domain.Task{}, err
+		}
+		if len(agg.Statuses) == 0 {
+			return domain.Task{}, fmt.Errorf("%w: board has no statuses", domain.ErrConflict)
+		}
+		statusID = agg.Statuses[0].ID
+	}
+	status, err := s.repo.GetStatus(ctx, statusID)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	if status.BoardID != b.ID {
+		return domain.Task{}, &domain.ValidationError{Field: "status_id", Message: "status belongs to another board"}
+	}
+	assignee, err := s.normalizedAssignee(ctx, b.ProjectID, cmd.AssigneeID)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	now := s.now()
+	task := domain.Task{ID: s.newID(), BoardID: b.ID, StatusID: statusID, Title: title, Description: description, AuthorID: actor.ID, AssigneeID: assignee, Deadline: cmd.Deadline, CreatedAt: now, UpdatedAt: now}
+	if err := s.repo.CreateTask(ctx, &task); err != nil {
+		return domain.Task{}, err
+	}
+	return task, nil
+}
+
+type UpdateTaskCommand struct {
+	Title       *string
+	Description *string
+	AssigneeID  *string
+	SetAssignee bool
+	Deadline    *time.Time
+	SetDeadline bool
+}
+
+func (s *Service) UpdateTask(ctx context.Context, actor domain.User, taskID string, cmd UpdateTaskCommand) (domain.Task, error) {
+	if cmd.Title == nil && cmd.Description == nil && !cmd.SetAssignee && !cmd.SetDeadline {
+		return domain.Task{}, &domain.ValidationError{Message: "at least one task field is required"}
+	}
+	task, b, _, err := s.authorizeTask(ctx, actor.ID, taskID, func(r domain.ProjectRole) bool { return r.CanManageTasks() })
+	if err != nil {
+		return domain.Task{}, err
+	}
+	if cmd.Title != nil {
+		task.Title = strings.TrimSpace(*cmd.Title)
+		if task.Title == "" {
+			return domain.Task{}, &domain.ValidationError{Field: "title", Message: "cannot be empty"}
+		}
+		if err := validateMaxLength("title", task.Title, maxTaskTitleLength); err != nil {
+			return domain.Task{}, err
+		}
+	}
+	if cmd.Description != nil {
+		task.Description = strings.TrimSpace(*cmd.Description)
+		if err := validateMaxLength("description", task.Description, maxTaskDescriptionLength); err != nil {
+			return domain.Task{}, err
+		}
+	}
+	if cmd.SetAssignee {
+		task.AssigneeID, err = s.normalizedAssignee(ctx, b.ProjectID, cmd.AssigneeID)
+		if err != nil {
+			return domain.Task{}, err
+		}
+	}
+	if cmd.SetDeadline {
+		task.Deadline = cmd.Deadline
+	}
+	task.UpdatedAt = s.now()
+	if err := s.repo.UpdateTask(ctx, task); err != nil {
+		return domain.Task{}, err
+	}
+	s.publisher.Publish(domain.TaskEvent{ID: s.newID(), Type: domain.EventTaskUpdated, ProjectID: b.ProjectID, BoardID: b.ID, TaskID: task.ID, ActorID: actor.ID, OccurredAt: s.now(), Payload: map[string]any{"task": task}})
+	return task, nil
+}
+
+func (s *Service) CreateComment(ctx context.Context, actor domain.User, taskID, body string) (domain.Comment, error) {
+	task, b, _, err := s.authorizeTask(ctx, actor.ID, taskID, func(r domain.ProjectRole) bool { return r.CanManageTasks() })
+	if err != nil {
+		return domain.Comment{}, err
+	}
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return domain.Comment{}, &domain.ValidationError{Field: "body", Message: "is required"}
+	}
+	if err := validateMaxLength("body", body, maxCommentLength); err != nil {
+		return domain.Comment{}, err
+	}
+	comment := domain.Comment{ID: s.newID(), TaskID: task.ID, AuthorID: actor.ID, Body: body, CreatedAt: s.now()}
+	if err := s.repo.CreateComment(ctx, &comment); err != nil {
+		return domain.Comment{}, err
+	}
+	s.publisher.Publish(domain.TaskEvent{ID: s.newID(), Type: domain.EventCommentCreated, ProjectID: b.ProjectID, BoardID: b.ID, TaskID: task.ID, ActorID: actor.ID, OccurredAt: s.now(), Payload: map[string]any{"comment": comment}})
+	return comment, nil
+}
+
+func (s *Service) TransitionTask(ctx context.Context, actor domain.User, taskID, targetStatusID string) (domain.Task, error) {
+	task, b, role, err := s.authorizeTask(ctx, actor.ID, taskID, func(r domain.ProjectRole) bool { return r.CanManageTasks() })
+	if err != nil {
+		return domain.Task{}, err
+	}
+	target, err := s.repo.GetStatus(ctx, targetStatusID)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	if target.BoardID != b.ID {
+		return domain.Task{}, &domain.ValidationError{Field: "target_status_id", Message: "status belongs to another board"}
+	}
+	rule, err := s.repo.FindRule(ctx, b.ID, task.StatusID, targetStatusID)
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return domain.Task{}, err
+	}
+	var rulePtr *domain.TransitionRule
+	if err == nil {
+		rulePtr = &rule
+	}
+	commentCount, err := s.repo.CountComments(ctx, task.ID)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	project, err := s.repo.GetProject(ctx, b.ProjectID)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	if err := domain.ValidateTransition(task, rulePtr, targetStatusID, domain.TransitionContext{ActorID: actor.ID, ProjectOwner: project.OwnerID, ProjectRole: role, CommentCount: commentCount}); err != nil {
+		return domain.Task{}, err
+	}
+	updated, err := s.repo.UpdateTaskStatus(ctx, task.ID, task.StatusID, task.UpdatedAt, targetStatusID)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	s.publisher.Publish(domain.TaskEvent{ID: s.newID(), Type: domain.EventTaskTransitioned, ProjectID: b.ProjectID, BoardID: b.ID, TaskID: task.ID, ActorID: actor.ID, FromStatusID: task.StatusID, ToStatusID: targetStatusID, OccurredAt: s.now(), Payload: map[string]any{"task": updated}})
+	return updated, nil
+}
+
+func (s *Service) AuthorizeProject(ctx context.Context, userID, projectID string) error {
+	_, err := s.requireMember(ctx, projectID, userID)
+	return err
+}
+
+func (s *Service) ProjectIDs(ctx context.Context, userID string) ([]string, error) {
+	projects, err := s.repo.ListProjects(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(projects))
+	for _, project := range projects {
+		ids = append(ids, project.ID)
+	}
+	return ids, nil
+}
+
+func (s *Service) Ready(ctx context.Context) error { return s.repo.Ping(ctx) }
+
+func (s *Service) requireMember(ctx context.Context, projectID, userID string) (domain.ProjectRole, error) {
+	m, err := s.repo.GetMembership(ctx, projectID, userID)
+	if errors.Is(err, domain.ErrNotFound) {
+		return "", domain.ErrForbidden
+	}
+	if err != nil {
+		return "", err
+	}
+	return m.Role, nil
+}
+
+func (s *Service) requireRole(ctx context.Context, projectID, userID string, allowed func(domain.ProjectRole) bool) (domain.ProjectRole, error) {
+	role, err := s.requireMember(ctx, projectID, userID)
+	if err != nil {
+		return "", err
+	}
+	if !allowed(role) {
+		return "", domain.ErrForbidden
+	}
+	return role, nil
+}
+
+func (s *Service) authorizeBoard(ctx context.Context, userID, boardID string, allowed func(domain.ProjectRole) bool) (domain.Board, domain.ProjectRole, error) {
+	b, err := s.repo.GetBoard(ctx, boardID)
+	if err != nil {
+		return domain.Board{}, "", err
+	}
+	role, err := s.requireMember(ctx, b.ProjectID, userID)
+	if err != nil {
+		return domain.Board{}, "", err
+	}
+	if allowed != nil && !allowed(role) {
+		return domain.Board{}, "", domain.ErrForbidden
+	}
+	return b, role, nil
+}
+
+func (s *Service) authorizeTask(ctx context.Context, userID, taskID string, allowed func(domain.ProjectRole) bool) (domain.Task, domain.Board, domain.ProjectRole, error) {
+	task, err := s.repo.GetTask(ctx, taskID)
+	if err != nil {
+		return domain.Task{}, domain.Board{}, "", err
+	}
+	b, role, err := s.authorizeBoard(ctx, userID, task.BoardID, allowed)
+	return task, b, role, err
+}
+
+func (s *Service) validateRule(ctx context.Context, boardID, fromID, toID string, conditions domain.RuleConditions) error {
+	if fromID == "" || toID == "" {
+		return &domain.ValidationError{Field: "status_id", Message: "from_status_id and to_status_id are required"}
+	}
+	if fromID == toID {
+		return &domain.ValidationError{Field: "to_status_id", Message: "must differ from from_status_id"}
+	}
+	from, err := s.repo.GetStatus(ctx, fromID)
+	if err != nil {
+		return err
+	}
+	to, err := s.repo.GetStatus(ctx, toID)
+	if err != nil {
+		return err
+	}
+	if from.BoardID != boardID || to.BoardID != boardID {
+		return &domain.ValidationError{Field: "status_id", Message: "both statuses must belong to the board"}
+	}
+	for _, role := range conditions.AllowedRoles {
+		if !role.Valid() {
+			return &domain.ValidationError{Field: "conditions.allowed_roles", Message: fmt.Sprintf("unknown role %q", role)}
+		}
+	}
+	return nil
+}
+
+func (s *Service) normalizedAssignee(ctx context.Context, projectID string, candidate *string) (*string, error) {
+	if candidate == nil || strings.TrimSpace(*candidate) == "" {
+		return nil, nil
+	}
+	id := strings.TrimSpace(*candidate)
+	if _, err := s.requireMember(ctx, projectID, id); err != nil {
+		if errors.Is(err, domain.ErrForbidden) {
+			return nil, &domain.ValidationError{Field: "assignee_id", Message: "assignee is not a project member"}
+		}
+		return nil, err
+	}
+	return &id, nil
+}
+
+func validateMaxLength(field, value string, maximum int) error {
+	if utf8.RuneCountInString(value) > maximum {
+		return &domain.ValidationError{Field: field, Message: fmt.Sprintf("must be at most %d characters", maximum)}
+	}
+	return nil
+}

@@ -1,0 +1,96 @@
+{
+  "realm": "taskflow",
+  "enabled": true,
+  "displayName": "TaskFlow",
+  "registrationAllowed": true,
+  "registrationEmailAsUsername": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "rememberMe": true,
+  "sslRequired": "external",
+  "accessTokenLifespan": 900,
+  "roles": {
+    "realm": [
+      { "name": "admin", "description": "May create projects; project-level permissions still apply" },
+      { "name": "member", "description": "Regular TaskFlow user" },
+      { "name": "viewer", "description": "Read-oriented TaskFlow user" }
+    ]
+  },
+  "defaultRoles": ["member", "offline_access", "uma_authorization"],
+  "clients": [
+    {
+      "clientId": "taskflow-web",
+      "name": "TaskFlow Web",
+      "protocol": "openid-connect",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "rootUrl": "http://localhost:8081",
+      "baseUrl": "http://localhost:8081",
+      "redirectUris": [
+        "http://localhost:8081/*",
+        "http://localhost:5173/*"
+      ],
+      "webOrigins": [
+        "http://localhost:8081",
+        "http://localhost:5173"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:8081/*##http://localhost:5173/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "audience-taskflow-web",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "taskflow-web",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "id": "11111111-1111-4111-8111-111111111111",
+      "username": "alice",
+      "email": "alice@taskflow.local",
+      "firstName": "Alice",
+      "lastName": "Admin",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "alice", "temporary": false }],
+      "realmRoles": ["admin", "member"]
+    },
+    {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "username": "bob",
+      "email": "bob@taskflow.local",
+      "firstName": "Bob",
+      "lastName": "Member",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "bob", "temporary": false }],
+      "realmRoles": ["member"]
+    },
+    {
+      "id": "33333333-3333-4333-8333-333333333333",
+      "username": "vera",
+      "email": "vera@taskflow.local",
+      "firstName": "Vera",
+      "lastName": "Viewer",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "vera", "temporary": false }],
+      "realmRoles": ["viewer"]
+    }
+  ]
+}

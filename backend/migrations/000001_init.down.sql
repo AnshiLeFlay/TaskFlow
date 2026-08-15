@@ -1,0 +1,7 @@
+DROP TABLE IF EXISTS comments;
+DROP TABLE IF EXISTS tasks;
+DROP TABLE IF EXISTS transition_rules;
+DROP TABLE IF EXISTS statuses;
+DROP TABLE IF EXISTS boards;
+DROP TABLE IF EXISTS project_members;
+DROP TABLE IF EXISTS projects;
