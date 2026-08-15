@@ -23,6 +23,7 @@ const saving = ref(false)
 const settingsBusy = ref(false)
 const draggingId = ref('')
 const dropStatusId = ref('')
+const modalKey = ref(0)
 
 const projectId = computed(() => String(route.params.projectId || ''))
 const boardId = computed(() => String(route.params.boardId || ''))
@@ -30,6 +31,7 @@ const project = computed(() => projects.projects.find((item) => item.id === proj
 const boardOptions = computed(() => projects.boardsByProject[projectId.value] || [])
 const canManageBoard = computed(() => project.value?.role === 'admin')
 const canManageTasks = computed(() => project.value?.role === 'admin' || project.value?.role === 'member')
+const members = computed(() => projects.membersByProject[projectId.value] || [])
 const tasksByStatus = computed(() => {
   const result: Record<string, Task[]> = {}
   for (const status of boardStore.orderedStatuses) result[status.id] = []
@@ -55,8 +57,14 @@ function openNewTask(statusId = '') {
   selectedTask.value = null
   initialStatusId.value = statusId || boardStore.orderedStatuses[0]?.id || ''
   modalOpen.value = true
+  if (projectId.value) projects.loadMembers(projectId.value).catch(() => [])
 }
-function openTask(task: Task) { selectedTask.value = task; initialStatusId.value = task.status_id; modalOpen.value = true }
+function openTask(task: Task) {
+  selectedTask.value = task
+  initialStatusId.value = task.status_id
+  modalOpen.value = true
+  if (projectId.value) projects.loadMembers(projectId.value).catch(() => [])
+}
 
 async function saveTask(input: { title: string; description?: string; status_id: string; assignee_id?: string | null; deadline?: string | null; comment?: string }) {
   saving.value = true
@@ -67,20 +75,44 @@ async function saveTask(input: { title: string; description?: string; status_id:
       const { comment: _comment, ...createInput } = input
       await boardStore.createTask(createInput)
       toasts.show('Task created', { tone: 'success', message: input.title })
-    } else {
-      if (input.comment) await boardStore.addComment(existing.id, input.comment)
-      await boardStore.updateTask(existing.id, {
-        title: input.title,
-        description: input.description,
-        assignee_id: input.assignee_id,
-        deadline: input.deadline,
-      })
-      if (statusChanged) await boardStore.transition(existing.id, input.status_id)
-      toasts.show('Task saved', { tone: 'success', message: input.title })
+      modalOpen.value = false
+      return
     }
+
+    if (input.comment) await boardStore.addComment(existing.id, input.comment)
+    await boardStore.updateTask(existing.id, {
+      title: input.title,
+      description: input.description,
+      assignee_id: input.assignee_id,
+      deadline: input.deadline,
+    })
+    // boardStore.updateTask() replaces the task object in board.tasks (rather than
+    // mutating it in place), so re-point selectedTask at that fresh object. This keeps
+    // the modal's :task prop in sync with the just-saved fields, and makes the status
+    // revert below (which mutates this same object) actually visible if remounted.
+    selectedTask.value = boardStore.board?.tasks.find((item) => item.id === existing.id) || existing
+
+    if (statusChanged) {
+      try {
+        await boardStore.transition(existing.id, input.status_id)
+      } catch (error) {
+        // Fields and comment are already persisted; only the status change was rejected.
+        // Remount the modal so it re-reads the (now-reverted) status from the task in the store.
+        modalKey.value += 1
+        const reason = error instanceof Error ? error.message : undefined
+        toasts.show('Status change blocked', {
+          tone: 'error',
+          message: reason ? `Fields and comment were saved. Status change was blocked: ${reason}` : 'Fields and comment were saved. The status change was blocked.',
+          timeout: 6500,
+        })
+        return
+      }
+    }
+
+    toasts.show('Task saved', { tone: 'success', message: input.title })
     modalOpen.value = false
   } catch (error) {
-    toasts.show(statusChanged ? 'Transition blocked' : 'Could not save task', { tone: 'error', message: error instanceof Error ? error.message : undefined, timeout: 6500 })
+    toasts.show('Could not save task', { tone: 'error', message: error instanceof Error ? error.message : undefined, timeout: 6500 })
   } finally { saving.value = false }
 }
 
@@ -197,7 +229,7 @@ async function deleteRule(rule: WorkflowRule) {
       </article>
     </section>
 
-    <TaskModal v-if="modalOpen" :task="selectedTask" :statuses="boardStore.orderedStatuses" :initial-status-id="initialStatusId" :busy="saving" :readonly="!canManageTasks" @close="modalOpen = false" @submit="saveTask" />
+    <TaskModal v-if="modalOpen" :key="modalKey" :task="selectedTask" :statuses="boardStore.orderedStatuses" :initial-status-id="initialStatusId" :members="members" :busy="saving" :readonly="!canManageTasks" @close="modalOpen = false" @submit="saveTask" />
     <BoardSettings v-if="showSettings" :statuses="boardStore.orderedStatuses" :rules="boardStore.board?.rules || []" :busy="settingsBusy" @close="showSettings = false" @create-status="createStatus" @update-status="updateStatus" @reorder-statuses="reorderStatuses" @delete-status="deleteStatus" @create-rule="createRule" @delete-rule="deleteRule" />
   </main>
 </template>

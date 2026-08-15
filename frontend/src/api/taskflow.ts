@@ -14,6 +14,9 @@ export const taskflowApi = {
   async addMember(projectId: string, input: Pick<ProjectMember, 'user_id' | 'role'>): Promise<ProjectMember> {
     return unwrapItem(await request<ProjectMember | Record<string, unknown>>(`/projects/${projectId}/members`, { method: 'POST', body: JSON.stringify(input) }), 'member')
   },
+  async listMembers(projectId: string): Promise<ProjectMember[]> {
+    return unwrapList(await request<ProjectMember[] | Record<string, unknown>>(`/projects/${projectId}/members`), 'members')
+  },
   async boards(projectId: string): Promise<Board[]> {
     return unwrapList(await request<Board[] | Record<string, unknown>>(`/projects/${projectId}/boards`), 'boards')
   },
@@ -23,9 +26,6 @@ export const taskflowApi = {
   async board(boardId: string): Promise<Board> {
     const board = unwrapItem<Board>(await request<Board | Record<string, unknown>>(`/boards/${boardId}`), 'board')
     return { ...board, statuses: board.statuses || [], tasks: board.tasks || [], rules: board.rules || [] }
-  },
-  async tasks(boardId: string): Promise<Task[]> {
-    return unwrapList(await request<Task[] | Record<string, unknown>>(`/boards/${boardId}/tasks`), 'tasks')
   },
   async createStatus(boardId: string, input: { name: string; position: number }): Promise<BoardStatus> {
     return unwrapItem(await request<BoardStatus | Record<string, unknown>>(`/boards/${boardId}/statuses`, { method: 'POST', body: JSON.stringify(input) }), 'status')

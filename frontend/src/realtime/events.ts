@@ -8,6 +8,8 @@ export interface RealtimeEventContext {
   board: Board | null
   showToast: (title: string, options: { message?: string; tone?: ToastTone }) => void
   refreshBoard?: (boardId: string) => void
+  /** The signed-in user's profile id (useAuthStore().user?.id), used to distinguish "you were assigned". */
+  currentUserId?: string
 }
 
 function eventType(event: RealtimeEvent): SupportedEventType | undefined {
@@ -40,11 +42,18 @@ export function handleRealtimeEvent(event: RealtimeEvent, context: RealtimeEvent
     && context.board?.id === context.activeBoardId,
   )
 
+  // Set only when a task.updated event changes the assignee of a task we already had
+  // state for (i.e. there is a "previous" assignee to compare against).
+  let assignmentChange: { title: string; newAssigneeId?: string } | undefined
+
   if (isActiveBoard && context.board) {
     if (type === 'task.transitioned' || type === 'task.updated') {
       const taskBelongsToBoard = embeddedTask && (!embeddedTask.board_id || embeddedTask.board_id === context.activeBoardId)
       if (taskBelongsToBoard) {
         const current = context.board.tasks.find((task) => task.id === embeddedTask.id)
+        if (type === 'task.updated' && current && current.assignee_id !== embeddedTask.assignee_id) {
+          assignmentChange = { title: embeddedTask.title || current.title, newAssigneeId: embeddedTask.assignee_id || undefined }
+        }
         if (current) Object.assign(current, embeddedTask)
         else context.board.tasks.push(embeddedTask)
       } else if (!embeddedTask) {
@@ -66,6 +75,14 @@ export function handleRealtimeEvent(event: RealtimeEvent, context: RealtimeEvent
     context.showToast('Task status changed', { tone: 'info', message: event.message || `${taskTitle} moved to a new column.` })
   } else if (type === 'comment.created') {
     context.showToast('New comment', { tone: 'info', message: event.message || `${taskTitle} has a new comment.` })
+  } else if (assignmentChange) {
+    const assignedToYou = Boolean(
+      context.currentUserId && assignmentChange.newAssigneeId && assignmentChange.newAssigneeId === context.currentUserId,
+    )
+    context.showToast(assignedToYou ? 'You were assigned' : 'Task assigned', {
+      tone: 'info',
+      message: assignedToYou ? `You were assigned to ${assignmentChange.title}.` : `${assignmentChange.title} was assigned to a new teammate.`,
+    })
   } else {
     context.showToast('Task updated', { tone: 'info', message: event.message || `${taskTitle} details or assignment changed.` })
   }

@@ -6,6 +6,7 @@ export const useProjectsStore = defineStore('projects', {
   state: () => ({
     projects: [] as Project[],
     boardsByProject: {} as Record<string, Board[]>,
+    membersByProject: {} as Record<string, ProjectMember[]>,
     loading: false,
     error: '',
   }),
@@ -37,6 +38,12 @@ export const useProjectsStore = defineStore('projects', {
     },
     async addMember(projectId: string, userId: string, role: ProjectRole): Promise<ProjectMember> {
       return taskflowApi.addMember(projectId, { user_id: userId, role })
+    },
+    async loadMembers(projectId: string, force = false) {
+      if (!force && this.membersByProject[projectId]) return this.membersByProject[projectId]
+      const members = await taskflowApi.listMembers(projectId)
+      this.membersByProject[projectId] = members
+      return members
     },
   },
 })
