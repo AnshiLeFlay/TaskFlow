@@ -2,6 +2,8 @@
 
 help:
 	@echo "TaskFlow targets: env, up, down, logs, build, fmt, vet, test, test-backend, test-backend-docker, test-integration, test-frontend, test-all, e2e, e2e-headed, e2e-full, swagger, swagger-check, proto"
+	@echo "  test        - backend (local go) + frontend tests; requires a local Go toolchain"
+	@echo "  test-all    - backend (dockerized) + frontend + integration tests; no local Go required"
 
 env:
 	test -f .env || cp .env.example .env
@@ -45,7 +47,10 @@ test-integration:
 test-frontend:
 	cd frontend && npm ci && npm run typecheck && npm run test --if-present && npm run build
 
-test-all: test test-integration
+# Uses the dockerized backend test target (not `test`, which needs a local Go
+# toolchain that this project assumes absent) so `make test-all` works out of
+# the box in a Go-less environment.
+test-all: test-backend-docker test-frontend test-integration
 
 e2e:
 	cd e2e && npm ci && npx playwright install --with-deps chromium && npm test

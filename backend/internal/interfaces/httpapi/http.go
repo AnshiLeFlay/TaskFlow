@@ -1,12 +1,14 @@
 package httpapi
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -646,6 +648,30 @@ func (rec *statusRecorder) Write(b []byte) (int, error) {
 	}
 	return rec.ResponseWriter.Write(b)
 }
+
+// Hijack forwards to the underlying ResponseWriter's http.Hijacker when
+// available. Without this, wrapping the ResponseWriter here would silently
+// break every WebSocket upgrade: gorilla/websocket upgrades via a direct
+// w.(http.Hijacker) type assertion, and statusRecorder would fail it.
+func (rec *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := rec.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("response writer does not implement http.Hijacker")
+	}
+	return h.Hijack()
+}
+
+// Flush forwards to the underlying ResponseWriter's http.Flusher when
+// available, so streaming responses still work through this middleware.
+func (rec *statusRecorder) Flush() {
+	if f, ok := rec.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Unwrap lets callers (and the stdlib's http.ResponseController) reach the
+// underlying ResponseWriter, per the http.ResponseWriter wrapping convention.
+func (rec *statusRecorder) Unwrap() http.ResponseWriter { return rec.ResponseWriter }
 
 func cors(allowed []string) mux.MiddlewareFunc {
 	set := make(map[string]struct{}, len(allowed))

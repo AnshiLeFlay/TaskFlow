@@ -59,6 +59,19 @@ func (f *endpointFakeRepository) CreateProject(_ context.Context, project *domai
 	return nil
 }
 
+func (f *endpointFakeRepository) ListProjects(_ context.Context, userID string) ([]domain.Project, error) {
+	var out []domain.Project
+	for _, m := range f.members {
+		if m.UserID != userID {
+			continue
+		}
+		if p, ok := f.projects[m.ProjectID]; ok {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
 func (f *endpointFakeRepository) GetProject(_ context.Context, id string) (domain.Project, error) {
 	p, ok := f.projects[id]
 	if !ok {

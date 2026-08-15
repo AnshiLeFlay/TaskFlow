@@ -5,6 +5,7 @@ import AppIcon from '../components/AppIcon.vue'
 import BoardSettings from '../components/BoardSettings.vue'
 import TaskCard from '../components/TaskCard.vue'
 import TaskModal from '../components/TaskModal.vue'
+import { planStatusSwap } from '../domain/boardReorder'
 import type { BoardStatus, Task, WorkflowConditions, WorkflowRule } from '../domain/types'
 import { useBoardStore } from '../stores/board'
 import { useProjectsStore } from '../stores/projects'
@@ -52,18 +53,24 @@ watch([projectId, boardId], async ([nextProjectId, nextBoardId]) => {
   }
 }, { immediate: true })
 
+function loadMembersOrWarn(id: string) {
+  return projects.loadMembers(id).catch((error) => {
+    toasts.show('Could not load members', { tone: 'error', message: error instanceof Error ? error.message : undefined })
+    return []
+  })
+}
 function openNewTask(statusId = '') {
   if (!canManageTasks.value) return
   selectedTask.value = null
   initialStatusId.value = statusId || boardStore.orderedStatuses[0]?.id || ''
   modalOpen.value = true
-  if (projectId.value) projects.loadMembers(projectId.value).catch(() => [])
+  if (projectId.value) loadMembersOrWarn(projectId.value)
 }
 function openTask(task: Task) {
   selectedTask.value = task
   initialStatusId.value = task.status_id
   modalOpen.value = true
-  if (projectId.value) projects.loadMembers(projectId.value).catch(() => [])
+  if (projectId.value) loadMembersOrWarn(projectId.value)
 }
 
 async function saveTask(input: { title: string; description?: string; status_id: string; assignee_id?: string | null; deadline?: string | null; comment?: string }) {
@@ -150,14 +157,23 @@ async function updateStatus(id: string, input: { name?: string; position?: numbe
   finally { settingsBusy.value = false }
 }
 async function reorderStatuses(first: BoardStatus, second: BoardStatus) {
+  // A direct two-call swap (first -> second's position, second -> first's
+  // position) always fails on the first call: `second` still occupies that
+  // position at that instant, and the backend now enforces a unique
+  // (board_id, position) index. planStatusSwap parks `first` beyond every
+  // status on the board first, so each of the three calls below is
+  // collision-free against the board's current state.
+  const steps = planStatusSwap(boardStore.orderedStatuses, first.id, second.id)
+  if (!steps.length) return
   settingsBusy.value = true
   const firstPosition = first.position
   const secondPosition = second.position
   first.position = secondPosition
   second.position = firstPosition
   try {
-    await boardStore.updateStatus(first.id, { position: secondPosition })
-    await boardStore.updateStatus(second.id, { position: firstPosition })
+    for (const step of steps) {
+      await boardStore.updateStatus(step.id, { position: step.position })
+    }
     await boardStore.load(boardId.value, true)
   } catch (error) {
     toasts.show('Could not reorder columns', { tone: 'error', message: error instanceof Error ? error.message : undefined })

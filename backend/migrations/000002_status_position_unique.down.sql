@@ -1,1 +1,1 @@
-DROP INDEX statuses_board_position_uniq;
+DROP INDEX IF EXISTS statuses_board_position_uniq;

@@ -17,6 +17,7 @@ vi.mock('../api/taskflow', () => ({
     updateTask: vi.fn(),
     transition: vi.fn(),
     createTask: vi.fn(),
+    updateStatus: vi.fn(),
   },
 }))
 
@@ -27,6 +28,7 @@ const listMembersMock = vi.mocked(taskflowApi.listMembers)
 const updateTaskMock = vi.mocked(taskflowApi.updateTask)
 const transitionMock = vi.mocked(taskflowApi.transition)
 const addCommentMock = vi.mocked(taskflowApi.addComment)
+const updateStatusMock = vi.mocked(taskflowApi.updateStatus)
 
 function seedProject(): Project {
   return { id: 'project-1', name: 'Project', role: 'admin' }
@@ -71,6 +73,7 @@ describe('BoardView: blocked-transition save flow', () => {
     updateTaskMock.mockReset()
     transitionMock.mockReset()
     addCommentMock.mockReset()
+    updateStatusMock.mockReset()
   })
 
   it('leaves the modal open, reverts the status select, and shows the partial-save toast when the transition is blocked', async () => {
@@ -115,5 +118,55 @@ describe('BoardView: blocked-transition save flow', () => {
 
     expect(wrapper.find('[data-testid="task-modal"]').exists()).toBe(false)
     expect(transitionMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('BoardView: column reorder', () => {
+  beforeEach(() => {
+    projectsMock.mockReset().mockResolvedValue([seedProject()])
+    boardsMock.mockReset().mockResolvedValue([{ id: 'board-1', project_id: 'project-1', name: 'Board', statuses: [], tasks: [], rules: [] }])
+    boardMock.mockReset().mockResolvedValue(seedBoard())
+    listMembersMock.mockReset().mockResolvedValue([])
+    updateStatusMock.mockReset()
+  })
+
+  it('swaps two columns with a park-then-move sequence instead of a two-call swap that always fails', async () => {
+    updateStatusMock.mockImplementation(async (id: string, input) => ({ id, name: id === 'todo' ? 'To Do' : 'Done', position: input.position ?? 0 }))
+
+    const { wrapper } = await mountBoard()
+
+    await wrapper.get('[data-testid="board-settings-button"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="board-settings"]').exists()).toBe(true)
+
+    // seedBoard has todo (position 0) and done (position 1); moving todo right swaps it with done.
+    await wrapper.get('[aria-label="Move column right"]').trigger('click')
+    await flushPromises()
+
+    // Regression coverage: a naive two-call swap (todo -> 1, done -> 0) fails immediately
+    // because `done` still occupies position 1 when the first call lands under the
+    // backend's unique (board_id, position) index. The fix parks `todo` beyond the
+    // board's highest position first.
+    expect(updateStatusMock.mock.calls.map(([id, input]) => [id, input.position])).toEqual([
+      ['todo', 2],
+      ['done', 0],
+      ['todo', 1],
+    ])
+  })
+
+  it('shows an error toast and reloads the board when a reorder call fails', async () => {
+    updateStatusMock.mockRejectedValue(new Error('position already used'))
+
+    const { wrapper } = await mountBoard()
+    boardMock.mockClear()
+
+    await wrapper.get('[data-testid="board-settings-button"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[aria-label="Move column right"]').trigger('click')
+    await flushPromises()
+
+    const toasts = useToastStore()
+    expect(toasts.items.some((item) => item.title === 'Could not reorder columns')).toBe(true)
+    expect(boardMock).toHaveBeenCalled()
   })
 })
