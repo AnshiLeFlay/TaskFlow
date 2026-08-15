@@ -10,20 +10,19 @@ import (
 
 	"github.com/example/taskflow/backend/internal/application"
 	"github.com/example/taskflow/backend/internal/domain"
-	"github.com/example/taskflow/backend/internal/infrastructure/auth"
 	"github.com/example/taskflow/backend/internal/infrastructure/realtime"
 	gorillawebsocket "github.com/gorilla/websocket"
 )
 
 type Handler struct {
 	service   *application.Service
-	validator auth.TokenValidator
+	validator application.TokenValidator
 	broker    *realtime.Broker
 	upgrader  gorillawebsocket.Upgrader
 	logger    *slog.Logger
 }
 
-func NewHandler(service *application.Service, validator auth.TokenValidator, broker *realtime.Broker, allowedOrigins []string, logger *slog.Logger) *Handler {
+func NewHandler(service *application.Service, validator application.TokenValidator, broker *realtime.Broker, allowedOrigins []string, logger *slog.Logger) *Handler {
 	origins := make(map[string]struct{}, len(allowedOrigins))
 	for _, origin := range allowedOrigins {
 		origins[strings.TrimRight(origin, "/")] = struct{}{}

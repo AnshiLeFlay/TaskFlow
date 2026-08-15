@@ -47,18 +47,20 @@ func main() {
 		}
 		return
 	}
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	if err := run(logger); err != nil {
+	cfg, err := config.Load()
+	if err != nil {
+		logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+		logger.Error("TaskFlow stopped", "error", err)
+		os.Exit(1)
+	}
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
+	if err := run(logger, cfg); err != nil {
 		logger.Error("TaskFlow stopped", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(logger *slog.Logger) error {
-	cfg, err := config.Load()
-	if err != nil {
-		return err
-	}
+func run(logger *slog.Logger, cfg config.Config) error {
 	if err := migrateWithRetry(cfg.DatabaseURL, cfg.MigrationsURL, 30*time.Second); err != nil {
 		return err
 	}

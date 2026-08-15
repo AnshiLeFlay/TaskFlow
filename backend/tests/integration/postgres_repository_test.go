@@ -4,7 +4,6 @@ package integration_test
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
@@ -18,15 +17,8 @@ import (
 )
 
 func TestPostgresRepositoryRoundTripAndAtomicTransition(t *testing.T) {
-	databaseURL := os.Getenv("TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("TEST_DATABASE_URL is required for real PostgreSQL integration tests")
-	}
-	migrationsURL := os.Getenv("TEST_MIGRATIONS_URL")
-	if migrationsURL == "" {
-		migrationsURL = "file://../../migrations"
-	}
-	require.NoError(t, migrations.Up(databaseURL, migrationsURL))
+	databaseURL := requireTestDatabaseURL(t)
+	require.NoError(t, migrations.Up(databaseURL, testMigrationsURL()))
 	ctx := context.Background()
 	repo, err := postgresrepo.New(ctx, databaseURL)
 	require.NoError(t, err)

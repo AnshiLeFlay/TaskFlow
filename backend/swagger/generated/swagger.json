@@ -453,6 +453,58 @@
             }
         },
         "/api/v1/projects/{projectId}/members": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "summary": "List project members",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Project ID",
+                        "name": "projectId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/definitions/httpapi.MemberSummary"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/httpapi.errorEnvelope"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/httpapi.errorEnvelope"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/httpapi.errorEnvelope"
+                        }
+                    }
+                }
+            },
             "post": {
                 "security": [
                     {
@@ -1330,6 +1382,17 @@
                     "type": "string"
                 },
                 "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "httpapi.MemberSummary": {
+            "type": "object",
+            "properties": {
+                "role": {
+                    "$ref": "#/definitions/domain.ProjectRole"
+                },
+                "user_id": {
                     "type": "string"
                 }
             }

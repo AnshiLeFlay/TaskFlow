@@ -7,14 +7,15 @@ import (
 	"strings"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/example/taskflow/backend/internal/application"
 	"github.com/example/taskflow/backend/internal/domain"
 )
 
 var ErrUnauthorized = errors.New("unauthorized")
 
-type TokenValidator interface {
-	Verify(context.Context, string) (domain.User, error)
-}
+// Compile-time assertion that KeycloakVerifier implements the
+// application.TokenValidator port.
+var _ application.TokenValidator = (*KeycloakVerifier)(nil)
 
 type KeycloakVerifier struct {
 	verifier *oidc.IDTokenVerifier

@@ -108,6 +108,24 @@ paths:
   /api/v1/projects/{projectId}/members:
     parameters:
       - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [Projects]
+      operationId: listProjectMembers
+      summary: List a project's members
+      description: Any project member, regardless of role, may list membership.
+      responses:
+        '200':
+          description: Member collection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectMemberList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
     post:
       tags: [Projects]
       operationId: addProjectMember
@@ -781,6 +799,25 @@ components:
           description: Keycloak subject identifier
         role:
           $ref: '#/components/schemas/ProjectRole'
+      additionalProperties: false
+    ProjectMemberSummary:
+      type: object
+      required: [user_id, role]
+      properties:
+        user_id:
+          type: string
+          description: Keycloak subject identifier
+        role:
+          $ref: '#/components/schemas/ProjectRole'
+      additionalProperties: false
+    ProjectMemberList:
+      type: object
+      required: [members]
+      properties:
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectMemberSummary'
       additionalProperties: false
 
     Board:

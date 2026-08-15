@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -19,11 +20,16 @@ type Config struct {
 	KeycloakSkipAudience bool
 	AllowedOrigins       []string
 	ShutdownTimeout      time.Duration
+	LogLevel             slog.Level
 }
 
 func Load() (Config, error) {
 	issuer := env("KEYCLOAK_ISSUER_URL", "http://localhost:8082/realms/taskflow")
 	skipAudience, err := envBool("KEYCLOAK_SKIP_AUDIENCE", false)
+	if err != nil {
+		return Config{}, err
+	}
+	logLevel, err := envLogLevel("LOG_LEVEL", slog.LevelInfo)
 	if err != nil {
 		return Config{}, err
 	}
@@ -38,6 +44,7 @@ func Load() (Config, error) {
 		KeycloakSkipAudience: skipAudience,
 		AllowedOrigins:       splitCSV(env("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:8081")),
 		ShutdownTimeout:      envDuration("SHUTDOWN_TIMEOUT", 10*time.Second),
+		LogLevel:             logLevel,
 	}
 	if cfg.DatabaseURL == "" {
 		return Config{}, fmt.Errorf("DATABASE_URL is required")
@@ -62,6 +69,24 @@ func envBool(name string, fallback bool) (bool, error) {
 		return false, fmt.Errorf("%s must be a boolean: %w", name, err)
 	}
 	return parsed, nil
+}
+
+func envLogLevel(name string, fallback slog.Level) (slog.Level, error) {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
+	switch value {
+	case "":
+		return fallback, nil
+	case "debug":
+		return slog.LevelDebug, nil
+	case "info":
+		return slog.LevelInfo, nil
+	case "warn":
+		return slog.LevelWarn, nil
+	case "error":
+		return slog.LevelError, nil
+	default:
+		return fallback, fmt.Errorf("%s must be one of debug|info|warn|error", name)
+	}
 }
 
 func envDuration(name string, fallback time.Duration) time.Duration {

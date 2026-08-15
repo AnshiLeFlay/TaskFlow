@@ -18,11 +18,11 @@ import (
 type Server struct {
 	taskflowv1.UnimplementedTaskEventsServer
 	service   *application.Service
-	validator auth.TokenValidator
+	validator application.TokenValidator
 	broker    *realtime.Broker
 }
 
-func NewServer(service *application.Service, validator auth.TokenValidator, broker *realtime.Broker) *Server {
+func NewServer(service *application.Service, validator application.TokenValidator, broker *realtime.Broker) *Server {
 	return &Server{service: service, validator: validator, broker: broker}
 }
 

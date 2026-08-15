@@ -30,6 +30,34 @@ func TestCORSPreflightBypassesMuxMethodAndAuthenticationMatching(t *testing.T) {
 	assert.True(t, strings.Contains(recorder.Header().Get("Access-Control-Allow-Headers"), "Authorization"))
 }
 
+func TestAccessLogGeneratesRequestIDAndEchoesProvidedOne(t *testing.T) {
+	router := NewRouter(nil, nil, http.NotFoundHandler(), "", nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	generated := httptest.NewRecorder()
+	router.ServeHTTP(generated, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	assert.NotEmpty(t, generated.Header().Get("X-Request-ID"))
+
+	provided := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	provided.Header.Set("X-Request-ID", "caller-supplied-id")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, provided)
+	assert.Equal(t, "caller-supplied-id", recorder.Header().Get("X-Request-ID"))
+}
+
+func TestStatusRecorderCapturesWrittenStatusCode(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	rec := &statusRecorder{ResponseWriter: recorder, status: http.StatusOK}
+	rec.WriteHeader(http.StatusTeapot)
+	assert.Equal(t, http.StatusTeapot, rec.status)
+	assert.Equal(t, http.StatusTeapot, recorder.Code)
+
+	implicitRecorder := httptest.NewRecorder()
+	implicit := &statusRecorder{ResponseWriter: implicitRecorder, status: http.StatusOK}
+	_, err := implicit.Write([]byte("ok"))
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, implicit.status)
+}
+
 func TestWriteErrorMapsOptimisticConflictAndWorkflowDenial(t *testing.T) {
 	tests := []struct {
 		name   string

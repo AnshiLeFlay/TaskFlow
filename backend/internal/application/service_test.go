@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"testing"
 	"time"
 
@@ -64,6 +65,21 @@ func (f *fakeRepository) GetMembership(_ context.Context, projectID, userID stri
 func (f *fakeRepository) UpsertMember(_ context.Context, m domain.Member) error {
 	f.members[memberKey(m.ProjectID, m.UserID)] = m
 	return nil
+}
+func (f *fakeRepository) ListMembers(_ context.Context, projectID string) ([]domain.Member, error) {
+	var out []domain.Member
+	for _, m := range f.members {
+		if m.ProjectID == projectID {
+			out = append(out, m)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Role != out[j].Role {
+			return out[i].Role < out[j].Role
+		}
+		return out[i].UserID < out[j].UserID
+	})
+	return out, nil
 }
 func (f *fakeRepository) CreateBoard(_ context.Context, b *domain.Board, statuses []domain.Status) error {
 	f.boards[b.ID] = *b
@@ -395,6 +411,86 @@ func TestCreateCommentPublishesCommentCreatedEvent(t *testing.T) {
 	payloadComment, ok := event.Payload["comment"].(domain.Comment)
 	require.True(t, ok)
 	assert.Equal(t, comment, payloadComment)
+}
+
+func TestCreateStatusRejectsPositionAlreadyUsedByAnotherStatusOnTheBoard(t *testing.T) {
+	repo := newFakeRepository()
+	repo.projects["project"] = domain.Project{ID: "project", OwnerID: "admin"}
+	repo.members[memberKey("project", "admin")] = domain.Member{ProjectID: "project", UserID: "admin", Role: domain.RoleAdmin}
+	repo.boards["board"] = domain.Board{ID: "board", ProjectID: "project"}
+	repo.statuses["todo"] = domain.Status{ID: "todo", BoardID: "board", Name: "To Do", Position: 0}
+	service := NewService(repo, nil, WithIDGenerator(func() string { return "new-status" }))
+
+	_, err := service.CreateStatus(context.Background(), domain.User{ID: "admin"}, "board", CreateStatusCommand{Name: "Duplicate", Position: 0})
+	require.Error(t, err)
+	var validation *domain.ValidationError
+	require.ErrorAs(t, err, &validation)
+	assert.Equal(t, "position", validation.Field)
+	_, stillAbsent := repo.statuses["new-status"]
+	assert.False(t, stillAbsent, "status must not be persisted when the position is already taken")
+
+	status, err := service.CreateStatus(context.Background(), domain.User{ID: "admin"}, "board", CreateStatusCommand{Name: "Review", Position: 1})
+	require.NoError(t, err)
+	assert.Equal(t, 1, status.Position)
+}
+
+func TestUpdateStatusRejectsPositionAlreadyUsedByAnotherStatusOnTheBoard(t *testing.T) {
+	repo := newFakeRepository()
+	repo.projects["project"] = domain.Project{ID: "project", OwnerID: "admin"}
+	repo.members[memberKey("project", "admin")] = domain.Member{ProjectID: "project", UserID: "admin", Role: domain.RoleAdmin}
+	repo.boards["board"] = domain.Board{ID: "board", ProjectID: "project"}
+	repo.statuses["todo"] = domain.Status{ID: "todo", BoardID: "board", Name: "To Do", Position: 0}
+	repo.statuses["done"] = domain.Status{ID: "done", BoardID: "board", Name: "Done", Position: 1}
+	service := NewService(repo, nil)
+	target := 0
+
+	_, err := service.UpdateStatus(context.Background(), domain.User{ID: "admin"}, "done", UpdateStatusCommand{Position: &target})
+	require.Error(t, err)
+	var validation *domain.ValidationError
+	require.ErrorAs(t, err, &validation)
+	assert.Equal(t, "position", validation.Field)
+	assert.Equal(t, 1, repo.statuses["done"].Position, "status must be unchanged when the target position is already taken")
+
+	// Moving a status to its own current position is not a conflict with itself.
+	same := 1
+	updated, err := service.UpdateStatus(context.Background(), domain.User{ID: "admin"}, "done", UpdateStatusCommand{Position: &same})
+	require.NoError(t, err)
+	assert.Equal(t, 1, updated.Position)
+}
+
+func TestListMembersAllowsAnyMemberButRejectsNonMembersAndUnknownProjects(t *testing.T) {
+	repo := newFakeRepository()
+	repo.projects["project"] = domain.Project{ID: "project", OwnerID: "admin"}
+	repo.members[memberKey("project", "admin")] = domain.Member{ProjectID: "project", UserID: "admin", Role: domain.RoleAdmin}
+	repo.members[memberKey("project", "viewer")] = domain.Member{ProjectID: "project", UserID: "viewer", Role: domain.RoleViewer}
+	service := NewService(repo, nil)
+
+	members, err := service.ListMembers(context.Background(), domain.User{ID: "viewer"}, "project")
+	require.NoError(t, err)
+	require.Len(t, members, 2)
+	assert.Equal(t, domain.RoleAdmin, members[0].Role)
+	assert.Equal(t, domain.RoleViewer, members[1].Role)
+
+	_, err = service.ListMembers(context.Background(), domain.User{ID: "outsider"}, "project")
+	assert.ErrorIs(t, err, domain.ErrForbidden)
+
+	_, err = service.ListMembers(context.Background(), domain.User{ID: "admin"}, "does-not-exist")
+	assert.ErrorIs(t, err, domain.ErrNotFound)
+}
+
+func TestTransitionTaskRejectsTargetStatusFromAnotherBoard(t *testing.T) {
+	repo, service, publisher := transitionFixture()
+	repo.boards["other-board"] = domain.Board{ID: "other-board", ProjectID: "project"}
+	repo.statuses["other-status"] = domain.Status{ID: "other-status", BoardID: "other-board"}
+
+	_, err := service.TransitionTask(context.Background(), domain.User{ID: "actor"}, "task", "other-status")
+
+	require.Error(t, err)
+	var validation *domain.ValidationError
+	require.ErrorAs(t, err, &validation)
+	assert.Equal(t, "target_status_id", validation.Field)
+	assert.Equal(t, 0, repo.statusUpdates)
+	assert.Empty(t, publisher.events)
 }
 
 func TestTransitionTaskPropagatesRepositoryConflictWithoutPublishing(t *testing.T) {

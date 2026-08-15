@@ -103,6 +103,18 @@ func (s *Service) AddMember(ctx context.Context, actor domain.User, projectID st
 	return m, nil
 }
 
+// ListMembers returns a project's members ordered by role then user ID. Any
+// project member, regardless of role, may list membership.
+func (s *Service) ListMembers(ctx context.Context, actor domain.User, projectID string) ([]domain.Member, error) {
+	if _, err := s.repo.GetProject(ctx, projectID); err != nil {
+		return nil, err
+	}
+	if _, err := s.requireMember(ctx, projectID, actor.ID); err != nil {
+		return nil, err
+	}
+	return s.repo.ListMembers(ctx, projectID)
+}
+
 type StatusInput struct {
 	Name     string
 	Position int
@@ -196,6 +208,9 @@ func (s *Service) CreateStatus(ctx context.Context, actor domain.User, boardID s
 	if cmd.Position < 0 {
 		return domain.Status{}, &domain.ValidationError{Field: "position", Message: "must be non-negative"}
 	}
+	if err := s.ensurePositionAvailable(ctx, b.ID, cmd.Position, ""); err != nil {
+		return domain.Status{}, err
+	}
 	now := s.now()
 	status := domain.Status{ID: s.newID(), BoardID: b.ID, Name: name, Position: cmd.Position, CreatedAt: now, UpdatedAt: now}
 	if err := s.repo.CreateStatus(ctx, &status); err != nil {
@@ -232,6 +247,9 @@ func (s *Service) UpdateStatus(ctx context.Context, actor domain.User, statusID 
 	if cmd.Position != nil {
 		if *cmd.Position < 0 {
 			return domain.Status{}, &domain.ValidationError{Field: "position", Message: "must be non-negative"}
+		}
+		if err := s.ensurePositionAvailable(ctx, status.BoardID, *cmd.Position, status.ID); err != nil {
+			return domain.Status{}, err
 		}
 		status.Position = *cmd.Position
 	}
@@ -577,6 +595,22 @@ func (s *Service) validateRule(ctx context.Context, boardID, fromID, toID string
 	for _, role := range conditions.AllowedRoles {
 		if !role.Valid() {
 			return &domain.ValidationError{Field: "conditions.allowed_roles", Message: fmt.Sprintf("unknown role %q", role)}
+		}
+	}
+	return nil
+}
+
+func (s *Service) ensurePositionAvailable(ctx context.Context, boardID string, position int, excludeStatusID string) error {
+	agg, err := s.repo.GetBoardAggregate(ctx, boardID)
+	if err != nil {
+		return err
+	}
+	for _, status := range agg.Statuses {
+		if status.ID == excludeStatusID {
+			continue
+		}
+		if status.Position == position {
+			return &domain.ValidationError{Field: "position", Message: "already used by another status on this board"}
 		}
 	}
 	return nil

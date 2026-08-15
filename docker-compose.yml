@@ -69,6 +69,7 @@ services:
       MIGRATIONS_URL: ${MIGRATIONS_URL:-file://migrations}
       SHUTDOWN_TIMEOUT: ${SHUTDOWN_TIMEOUT:-10s}
       HEALTHCHECK_URL: ${HEALTHCHECK_URL:-http://127.0.0.1:8080/healthz}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
       - "8080:8080"
       - "50051:50051"

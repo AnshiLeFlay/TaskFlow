@@ -1,0 +1,1 @@
+DROP INDEX statuses_board_position_uniq;

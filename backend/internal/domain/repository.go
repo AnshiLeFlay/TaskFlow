@@ -13,6 +13,7 @@ type Repository interface {
 	GetProject(context.Context, string) (Project, error)
 	GetMembership(context.Context, string, string) (Member, error)
 	UpsertMember(context.Context, Member) error
+	ListMembers(context.Context, string) ([]Member, error)
 
 	CreateBoard(context.Context, *Board, []Status) error
 	ListBoards(context.Context, string) ([]Board, error)
