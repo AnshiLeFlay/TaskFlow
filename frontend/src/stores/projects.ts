@@ -38,8 +38,12 @@ export const useProjectsStore = defineStore('projects', {
     },
     async addMember(projectId: string, userId: string, role: ProjectRole): Promise<ProjectMember> {
       const member = await taskflowApi.addMember(projectId, { user_id: userId, role })
-      this.membersByProject[projectId] ||= []
-      this.membersByProject[projectId].push(member)
+      // Only append to an already-populated cache (i.e. loadMembers has genuinely
+      // fetched this project before). Never *create* the cache entry here: doing so
+      // would leave it containing only this one member, and loadMembers' "already
+      // cached, skip the fetch" check would then serve that incomplete list forever.
+      // Leaving the cache empty/absent lets the next loadMembers() do the real fetch.
+      if (this.membersByProject[projectId]) this.membersByProject[projectId].push(member)
       return member
     },
     async loadMembers(projectId: string, force = false) {
