@@ -106,18 +106,23 @@ the wire contract and [architecture.md](architecture.md) for delivery semantics.
 ## Tests and development
 
 ```sh
-make test-backend       # unit and application tests, race detector
-make test-integration   # repository tests against PostgreSQL
-make test-frontend      # typecheck, component tests when present, production build
-make e2e                # two Playwright scenarios, headless
-make e2e-headed         # same scenarios with a visible browser
-make swagger            # regenerate Swagger output from Go annotations
+make env                 # copy .env.example to .env if missing
+make test-backend        # unit and application tests, race detector
+make test-backend-docker # same suite, built and run inside golang:1.23-alpine (no local Go)
+make test-integration    # repository tests against PostgreSQL
+make test-frontend       # typecheck, component tests when present, production build
+make test-all            # test-backend + test-frontend + test-integration
+make e2e                 # two Playwright scenarios, headless
+make e2e-headed          # same scenarios with a visible browser
+make e2e-full            # bring the stack up (build + wait) and run e2e headless
+make swagger             # regenerate Swagger output from Go annotations
 ```
 
-Run the stack before Playwright tests. The e2e suite uses the imported Keycloak
-users and creates unique project names, so parallel/repeated runs do not depend
-on a clean application database. Integration tests are guarded by the
-`integration` build tag and use `TEST_DATABASE_URL` when it is set.
+Run the stack before Playwright tests (`make e2e-full` does this for you). The
+e2e suite uses the imported Keycloak users and creates unique project names, so
+parallel/repeated runs do not depend on a clean application database.
+Integration tests are guarded by the `integration` build tag and use
+`TEST_DATABASE_URL` when it is set.
 
 For a fast local loop without Compose, run PostgreSQL and Keycloak from Compose,
 then start `backend` and `frontend` with the variables from `.env.example`. Keep
