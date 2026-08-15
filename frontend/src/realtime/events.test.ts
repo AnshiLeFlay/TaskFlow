@@ -88,6 +88,26 @@ describe('realtime event handling', () => {
     expect(showToast).toHaveBeenCalledWith('You were assigned', expect.objectContaining({ tone: 'info', message: expect.stringContaining('Existing task') }))
   })
 
+  it('shows an unassignment toast — not an assignment toast — when the assignee is cleared', () => {
+    const activeBoard = board()
+    activeBoard.tasks[0].assignee_id = 'user-1'
+    const showToast = vi.fn()
+    const event: RealtimeEvent = {
+      type: 'task.updated',
+      board_id: activeBoard.id,
+      task_id: 'task-1',
+      payload: {
+        task: { id: 'task-1', board_id: activeBoard.id, status_id: 'todo', title: 'Existing task', assignee_id: null },
+      },
+    }
+
+    handleRealtimeEvent(event, { activeBoardId: activeBoard.id, board: activeBoard, showToast })
+
+    expect(activeBoard.tasks[0].assignee_id).toBeNull()
+    expect(showToast).toHaveBeenCalledWith('Task unassigned', expect.objectContaining({ tone: 'info', message: expect.stringContaining('Existing task') }))
+    expect(showToast).not.toHaveBeenCalledWith('Task assigned', expect.anything())
+  })
+
   it('keeps the generic toast when task.updated does not change the assignee', () => {
     const activeBoard = board()
     const showToast = vi.fn()

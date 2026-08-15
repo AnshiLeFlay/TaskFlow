@@ -59,6 +59,39 @@ export const useBoardStore = defineStore('board', {
       }
       return comment
     },
+    /**
+     * Orchestrates the task-modal save flow for an existing task: comment, then field
+     * edits, then (if the status changed) a transition attempt — in that order. Field
+     * edits (and the comment) are persisted even if the transition is subsequently
+     * rejected; only the transition's own failure is reported back as "blocked" rather
+     * than thrown, so callers can keep their UI open and explain the partial success
+     * without treating it as a hard error.
+     */
+    async saveTaskEdits(taskId: string, input: {
+      title: string
+      description?: string
+      assignee_id?: string | null
+      deadline?: string | null
+      comment?: string
+      statusChanged: boolean
+      targetStatusId: string
+    }): Promise<{ status: 'saved' } | { status: 'blocked'; reason?: string }> {
+      if (input.comment) await this.addComment(taskId, input.comment)
+      await this.updateTask(taskId, {
+        title: input.title,
+        description: input.description,
+        assignee_id: input.assignee_id,
+        deadline: input.deadline,
+      })
+      if (input.statusChanged) {
+        try {
+          await this.transition(taskId, input.targetStatusId)
+        } catch (error) {
+          return { status: 'blocked', reason: error instanceof Error ? error.message : undefined }
+        }
+      }
+      return { status: 'saved' }
+    },
     async transition(taskId: string, targetStatusId: string) {
       if (!this.board) throw new Error('Board is not loaded')
       const task = this.board.tasks.find((item) => item.id === taskId)

@@ -37,7 +37,10 @@ export const useProjectsStore = defineStore('projects', {
       return board
     },
     async addMember(projectId: string, userId: string, role: ProjectRole): Promise<ProjectMember> {
-      return taskflowApi.addMember(projectId, { user_id: userId, role })
+      const member = await taskflowApi.addMember(projectId, { user_id: userId, role })
+      this.membersByProject[projectId] ||= []
+      this.membersByProject[projectId].push(member)
+      return member
     },
     async loadMembers(projectId: string, force = false) {
       if (!force && this.membersByProject[projectId]) return this.membersByProject[projectId]

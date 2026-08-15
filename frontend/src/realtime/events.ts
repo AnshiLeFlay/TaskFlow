@@ -43,7 +43,8 @@ export function handleRealtimeEvent(event: RealtimeEvent, context: RealtimeEvent
   )
 
   // Set only when a task.updated event changes the assignee of a task we already had
-  // state for (i.e. there is a "previous" assignee to compare against).
+  // state for (i.e. there is a "previous" assignee to compare against). newAssigneeId is
+  // undefined for an unassignment (assignee_id cleared), as opposed to for an assignment.
   let assignmentChange: { title: string; newAssigneeId?: string } | undefined
 
   if (isActiveBoard && context.board) {
@@ -51,8 +52,12 @@ export function handleRealtimeEvent(event: RealtimeEvent, context: RealtimeEvent
       const taskBelongsToBoard = embeddedTask && (!embeddedTask.board_id || embeddedTask.board_id === context.activeBoardId)
       if (taskBelongsToBoard) {
         const current = context.board.tasks.find((task) => task.id === embeddedTask.id)
-        if (type === 'task.updated' && current && current.assignee_id !== embeddedTask.assignee_id) {
-          assignmentChange = { title: embeddedTask.title || current.title, newAssigneeId: embeddedTask.assignee_id || undefined }
+        if (type === 'task.updated' && current) {
+          const previousAssigneeId = current.assignee_id || undefined
+          const nextAssigneeId = embeddedTask.assignee_id || undefined
+          if (previousAssigneeId !== nextAssigneeId) {
+            assignmentChange = { title: embeddedTask.title || current.title, newAssigneeId: nextAssigneeId }
+          }
         }
         if (current) Object.assign(current, embeddedTask)
         else context.board.tasks.push(embeddedTask)
@@ -75,9 +80,11 @@ export function handleRealtimeEvent(event: RealtimeEvent, context: RealtimeEvent
     context.showToast('Task status changed', { tone: 'info', message: event.message || `${taskTitle} moved to a new column.` })
   } else if (type === 'comment.created') {
     context.showToast('New comment', { tone: 'info', message: event.message || `${taskTitle} has a new comment.` })
+  } else if (assignmentChange && !assignmentChange.newAssigneeId) {
+    context.showToast('Task unassigned', { tone: 'info', message: `${assignmentChange.title} no longer has an assignee.` })
   } else if (assignmentChange) {
     const assignedToYou = Boolean(
-      context.currentUserId && assignmentChange.newAssigneeId && assignmentChange.newAssigneeId === context.currentUserId,
+      context.currentUserId && assignmentChange.newAssigneeId === context.currentUserId,
     )
     context.showToast(assignedToYou ? 'You were assigned' : 'Task assigned', {
       tone: 'info',

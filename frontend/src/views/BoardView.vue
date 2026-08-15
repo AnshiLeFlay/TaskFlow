@@ -79,34 +79,32 @@ async function saveTask(input: { title: string; description?: string; status_id:
       return
     }
 
-    if (input.comment) await boardStore.addComment(existing.id, input.comment)
-    await boardStore.updateTask(existing.id, {
+    const result = await boardStore.saveTaskEdits(existing.id, {
       title: input.title,
       description: input.description,
       assignee_id: input.assignee_id,
       deadline: input.deadline,
+      comment: input.comment,
+      statusChanged,
+      targetStatusId: input.status_id,
     })
-    // boardStore.updateTask() replaces the task object in board.tasks (rather than
-    // mutating it in place), so re-point selectedTask at that fresh object. This keeps
-    // the modal's :task prop in sync with the just-saved fields, and makes the status
-    // revert below (which mutates this same object) actually visible if remounted.
+    // boardStore.updateTask() (called inside saveTaskEdits) replaces the task object in
+    // board.tasks (rather than mutating it in place), so re-point selectedTask at that
+    // fresh object. This keeps the modal's :task prop in sync with the just-saved
+    // fields, and makes a reverted status (on a blocked transition, below) visible on
+    // the forced remount.
     selectedTask.value = boardStore.board?.tasks.find((item) => item.id === existing.id) || existing
 
-    if (statusChanged) {
-      try {
-        await boardStore.transition(existing.id, input.status_id)
-      } catch (error) {
-        // Fields and comment are already persisted; only the status change was rejected.
-        // Remount the modal so it re-reads the (now-reverted) status from the task in the store.
-        modalKey.value += 1
-        const reason = error instanceof Error ? error.message : undefined
-        toasts.show('Status change blocked', {
-          tone: 'error',
-          message: reason ? `Fields and comment were saved. Status change was blocked: ${reason}` : 'Fields and comment were saved. The status change was blocked.',
-          timeout: 6500,
-        })
-        return
-      }
+    if (result.status === 'blocked') {
+      // Fields and comment are already persisted; only the status change was rejected.
+      // Remount the modal so it re-reads the (now-reverted) status from the task in the store.
+      modalKey.value += 1
+      toasts.show('Status change blocked', {
+        tone: 'error',
+        message: result.reason ? `Fields and comment were saved. Status change was blocked: ${result.reason}` : 'Fields and comment were saved. The status change was blocked.',
+        timeout: 6500,
+      })
+      return
     }
 
     toasts.show('Task saved', { tone: 'success', message: input.title })
