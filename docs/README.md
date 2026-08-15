@@ -52,7 +52,10 @@ membership is re-checked as events are delivered, so notifications continue on
 the Projects page and membership changes do not require a reconnect. Realm roles identify the general type of account, while the
 authoritative role inside a particular project is stored in
 `project_members` (`admin`, `member`, or `viewer`). A project creator is inserted
-as its `admin` and remains its owner.
+as its `admin` and remains its owner. The backend uses the least-privilege
+`taskflow-backend` Keycloak service account (`query-users`, `view-users`) to
+populate the user selector; project membership itself is still stored only in
+TaskFlow.
 
 For command-line exploration, obtain a development token:
 
@@ -77,7 +80,7 @@ canonical Swagger UI input as `backend/swagger/generated/swagger.{yaml,json}`
 and copies those artifacts to `swagger/generated/`. The UI deliberately loads
 that generated JSON, while the more detailed OpenAPI 3 YAML remains available
 for client generation and review.
-The REST API covers projects and membership, boards, status CRUD and ordering,
+The REST API covers the Keycloak user directory, projects and membership, boards, status CRUD and ordering,
 transition-rule CRUD, tasks, persisted comment history, comments, and task
 transitions.
 

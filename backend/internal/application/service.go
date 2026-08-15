@@ -15,6 +15,7 @@ import (
 type Service struct {
 	repo      domain.Repository
 	publisher domain.EventPublisher
+	directory UserDirectory
 	now       func() time.Time
 	newID     func() string
 }
@@ -32,6 +33,9 @@ type Option func(*Service)
 
 func WithClock(now func() time.Time) Option   { return func(s *Service) { s.now = now } }
 func WithIDGenerator(fn func() string) Option { return func(s *Service) { s.newID = fn } }
+func WithUserDirectory(directory UserDirectory) Option {
+	return func(s *Service) { s.directory = directory }
+}
 
 func NewService(repo domain.Repository, publisher domain.EventPublisher, opts ...Option) *Service {
 	if publisher == nil {
@@ -89,18 +93,35 @@ func (s *Service) AddMember(ctx context.Context, actor domain.User, projectID st
 	if !cmd.Role.Valid() {
 		return domain.Member{}, &domain.ValidationError{Field: "role", Message: "must be admin, member, or viewer"}
 	}
+	userID := strings.TrimSpace(cmd.UserID)
+	if s.directory != nil {
+		if _, err := s.directory.GetUser(ctx, userID); err != nil {
+			if errors.Is(err, domain.ErrNotFound) {
+				return domain.Member{}, &domain.ValidationError{Field: "user_id", Message: "user does not exist"}
+			}
+			return domain.Member{}, err
+		}
+	}
 	p, err := s.repo.GetProject(ctx, projectID)
 	if err != nil {
 		return domain.Member{}, err
 	}
-	if cmd.UserID == p.OwnerID {
+	if userID == p.OwnerID {
 		return domain.Member{}, fmt.Errorf("%w: project owner role cannot be changed", domain.ErrConflict)
 	}
-	m := domain.Member{ProjectID: projectID, UserID: strings.TrimSpace(cmd.UserID), Role: cmd.Role, CreatedAt: s.now()}
+	m := domain.Member{ProjectID: projectID, UserID: userID, Role: cmd.Role, CreatedAt: s.now()}
 	if err := s.repo.UpsertMember(ctx, m); err != nil {
 		return domain.Member{}, err
 	}
 	return m, nil
+}
+
+// ListUsers returns the enabled identities available for project membership.
+func (s *Service) ListUsers(ctx context.Context) ([]domain.User, error) {
+	if s.directory == nil {
+		return nil, errors.New("user directory is not configured")
+	}
+	return s.directory.ListUsers(ctx)
 }
 
 // ListMembers returns a project's members ordered by role then user ID. Any
@@ -626,6 +647,13 @@ func (s *Service) normalizedAssignee(ctx context.Context, projectID string, cand
 			return nil, &domain.ValidationError{Field: "assignee_id", Message: "assignee is not a project member"}
 		}
 		return nil, err
+	}
+	membership, err := s.repo.GetMembership(ctx, projectID, id)
+	if err != nil {
+		return nil, err
+	}
+	if membership.Role == domain.RoleViewer {
+		return nil, &domain.ValidationError{Field: "assignee_id", Message: "viewer cannot be assigned to tasks"}
 	}
 	return &id, nil
 }

@@ -339,11 +339,15 @@ func TestCreateTaskRequiresAssigneeMembership(t *testing.T) {
 	repo.projects["project"] = domain.Project{ID: "project", OwnerID: "admin"}
 	repo.members[memberKey("project", "admin")] = domain.Member{ProjectID: "project", UserID: "admin", Role: domain.RoleAdmin}
 	repo.members[memberKey("project", "assignee")] = domain.Member{ProjectID: "project", UserID: "assignee", Role: domain.RoleMember}
+	repo.members[memberKey("project", "viewer")] = domain.Member{ProjectID: "project", UserID: "viewer", Role: domain.RoleViewer}
 	repo.boards["board"] = domain.Board{ID: "board", ProjectID: "project"}
 	repo.statuses["todo"] = domain.Status{ID: "todo", BoardID: "board", Position: 0}
 	service := NewService(repo, nil, WithIDGenerator(func() string { return "task-id" }))
 	outsider := "outsider"
 	_, err := service.CreateTask(context.Background(), domain.User{ID: "admin"}, "board", CreateTaskCommand{Title: "Task", StatusID: "todo", AssigneeID: &outsider})
+	assert.ErrorIs(t, err, domain.ErrInvalid)
+	viewer := "viewer"
+	_, err = service.CreateTask(context.Background(), domain.User{ID: "admin"}, "board", CreateTaskCommand{Title: "Task", StatusID: "todo", AssigneeID: &viewer})
 	assert.ErrorIs(t, err, domain.ErrInvalid)
 	assignee := "assignee"
 	task, err := service.CreateTask(context.Background(), domain.User{ID: "admin"}, "board", CreateTaskCommand{Title: "Task", StatusID: "todo", AssigneeID: &assignee})

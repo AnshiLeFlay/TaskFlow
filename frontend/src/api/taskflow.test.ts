@@ -33,4 +33,13 @@ describe('taskflowApi.listMembers', () => {
 
     expect(result).toEqual(members)
   })
+
+  it('loads the complete user directory', async () => {
+    const users = [{ id: 'user-1', username: 'alice' }, { id: 'user-2', username: 'bob' }]
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, text: async () => JSON.stringify({ users }) })
+    vi.stubGlobal('fetch', fetchMock)
+
+    expect(await taskflowApi.users()).toEqual(users)
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/users')
+  })
 })

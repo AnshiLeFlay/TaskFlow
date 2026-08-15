@@ -31,11 +31,17 @@ describe('TaskModal', () => {
     expect((remounted.get('[data-testid="task-status"]').element as HTMLSelectElement).value).toBe('todo')
   })
 
-  it('lists project members as "role — user_id" options, plus a default Unassigned option', () => {
-    const members: ProjectMember[] = [{ user_id: 'user-1', role: 'admin' }, { user_id: 'user-2', role: 'member' }]
+  it('lists assignable project members by identity, plus a default Unassigned option', () => {
+    const members: ProjectMember[] = [{ user_id: 'user-1', username: 'alice', role: 'admin' }, { user_id: 'user-2', name: 'Bob Member', role: 'member' }]
     const wrapper = mount(TaskModal, { props: { task: task(), statuses, members } })
     const options = wrapper.findAll('[data-testid="task-assignee"] option')
-    expect(options.map((option) => option.text())).toEqual(['Unassigned', 'admin — user-1', 'member — user-2'])
+    expect(options.map((option) => option.text())).toEqual(['Unassigned', 'alice (admin)', 'Bob Member (member)'])
+  })
+
+  it('does not offer read-only viewers as assignees', () => {
+    const members: ProjectMember[] = [{ user_id: 'viewer-1', username: 'vera', role: 'viewer' }]
+    const wrapper = mount(TaskModal, { props: { task: task(), statuses, members } })
+    expect(wrapper.findAll('[data-testid="task-assignee"] option').map((option) => option.text())).toEqual(['Unassigned'])
   })
 
   it('falls back to just Unassigned when no members have loaded yet', () => {

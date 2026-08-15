@@ -10,17 +10,21 @@ import (
 )
 
 type Config struct {
-	HTTPAddr             string
-	GRPCAddr             string
-	DatabaseURL          string
-	MigrationsURL        string
-	KeycloakIssuerURL    string
-	KeycloakJWKSURL      string
-	KeycloakClientID     string
-	KeycloakSkipAudience bool
-	AllowedOrigins       []string
-	ShutdownTimeout      time.Duration
-	LogLevel             slog.Level
+	HTTPAddr                string
+	GRPCAddr                string
+	DatabaseURL             string
+	MigrationsURL           string
+	KeycloakIssuerURL       string
+	KeycloakJWKSURL         string
+	KeycloakClientID        string
+	KeycloakSkipAudience    bool
+	KeycloakAdminURL        string
+	KeycloakRealm           string
+	KeycloakDirectoryID     string
+	KeycloakDirectorySecret string
+	AllowedOrigins          []string
+	ShutdownTimeout         time.Duration
+	LogLevel                slog.Level
 }
 
 func Load() (Config, error) {
@@ -34,17 +38,21 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	cfg := Config{
-		HTTPAddr:             env("HTTP_ADDR", ":8080"),
-		GRPCAddr:             env("GRPC_ADDR", ":50051"),
-		DatabaseURL:          strings.TrimSpace(os.Getenv("DATABASE_URL")),
-		MigrationsURL:        env("MIGRATIONS_URL", "file://migrations"),
-		KeycloakIssuerURL:    issuer,
-		KeycloakJWKSURL:      env("KEYCLOAK_JWKS_URL", strings.TrimRight(issuer, "/")+"/protocol/openid-connect/certs"),
-		KeycloakClientID:     env("KEYCLOAK_CLIENT_ID", "taskflow-web"),
-		KeycloakSkipAudience: skipAudience,
-		AllowedOrigins:       splitCSV(env("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:8081")),
-		ShutdownTimeout:      envDuration("SHUTDOWN_TIMEOUT", 10*time.Second),
-		LogLevel:             logLevel,
+		HTTPAddr:                env("HTTP_ADDR", ":8080"),
+		GRPCAddr:                env("GRPC_ADDR", ":50051"),
+		DatabaseURL:             strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		MigrationsURL:           env("MIGRATIONS_URL", "file://migrations"),
+		KeycloakIssuerURL:       issuer,
+		KeycloakJWKSURL:         env("KEYCLOAK_JWKS_URL", strings.TrimRight(issuer, "/")+"/protocol/openid-connect/certs"),
+		KeycloakClientID:        env("KEYCLOAK_CLIENT_ID", "taskflow-web"),
+		KeycloakSkipAudience:    skipAudience,
+		KeycloakAdminURL:        env("KEYCLOAK_ADMIN_URL", "http://keycloak:8080"),
+		KeycloakRealm:           env("KEYCLOAK_REALM", "taskflow"),
+		KeycloakDirectoryID:     env("KEYCLOAK_DIRECTORY_CLIENT_ID", "taskflow-backend"),
+		KeycloakDirectorySecret: env("KEYCLOAK_DIRECTORY_CLIENT_SECRET", "taskflow-backend-secret"),
+		AllowedOrigins:          splitCSV(env("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:8081")),
+		ShutdownTimeout:         envDuration("SHUTDOWN_TIMEOUT", 10*time.Second),
+		LogLevel:                logLevel,
 	}
 	if cfg.DatabaseURL == "" {
 		return Config{}, fmt.Errorf("DATABASE_URL is required")

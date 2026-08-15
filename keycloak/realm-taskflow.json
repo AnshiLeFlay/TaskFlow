@@ -56,9 +56,28 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "taskflow-backend",
+      "name": "TaskFlow Backend User Directory",
+      "protocol": "openid-connect",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "taskflow-backend-secret",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true
     }
   ],
   "users": [
+    {
+      "username": "service-account-taskflow-backend",
+      "enabled": true,
+      "serviceAccountClientId": "taskflow-backend",
+      "clientRoles": {
+        "realm-management": ["query-users", "view-users"]
+      }
+    },
     {
       "id": "11111111-1111-4111-8111-111111111111",
       "username": "alice",

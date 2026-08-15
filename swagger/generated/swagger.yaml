@@ -173,6 +173,8 @@ definitions:
         type: string
       id:
         type: string
+      name:
+        type: string
       roles:
         items:
           type: string
@@ -234,9 +236,15 @@ definitions:
     type: object
   httpapi.MemberSummary:
     properties:
+      email:
+        type: string
+      name:
+        type: string
       role:
         $ref: '#/definitions/domain.ProjectRole'
       user_id:
+        type: string
+      username:
         type: string
     type: object
   httpapi.StatusRequest:
@@ -880,6 +888,26 @@ paths:
       summary: Transition a task after evaluating its persisted workflow rule
       tags:
       - tasks
+  /api/v1/users:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                $ref: '#/definitions/domain.User'
+              type: array
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: List enabled Keycloak users
+      tags:
+      - identity
   /healthz:
     get:
       responses:

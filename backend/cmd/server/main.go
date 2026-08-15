@@ -78,7 +78,8 @@ func run(logger *slog.Logger, cfg config.Config) error {
 		return err
 	}
 	broker := realtime.NewBroker()
-	service := application.NewService(repository, broker)
+	directory := auth.NewKeycloakDirectory(cfg.KeycloakAdminURL, cfg.KeycloakRealm, cfg.KeycloakDirectoryID, cfg.KeycloakDirectorySecret)
+	service := application.NewService(repository, broker, application.WithUserDirectory(directory))
 	websocketHandler := wsapi.NewHandler(service, validator, broker, cfg.AllowedOrigins, logger)
 
 	httpServer := &http.Server{

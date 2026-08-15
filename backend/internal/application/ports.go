@@ -13,3 +13,10 @@ import (
 type TokenValidator interface {
 	Verify(context.Context, string) (domain.User, error)
 }
+
+// UserDirectory exposes the small, read-only part of the identity provider
+// needed by TaskFlow. Project membership remains owned by TaskFlow itself.
+type UserDirectory interface {
+	ListUsers(context.Context) ([]domain.User, error)
+	GetUser(context.Context, string) (domain.User, error)
+}

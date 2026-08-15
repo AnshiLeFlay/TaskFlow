@@ -45,6 +45,7 @@ func (v *KeycloakVerifier) Verify(ctx context.Context, rawToken string) (domain.
 		Subject           string `json:"sub"`
 		PreferredUsername string `json:"preferred_username"`
 		Email             string `json:"email"`
+		Name              string `json:"name"`
 		RealmAccess       struct {
 			Roles []string `json:"roles"`
 		} `json:"realm_access"`
@@ -53,7 +54,7 @@ func (v *KeycloakVerifier) Verify(ctx context.Context, rawToken string) (domain.
 		return domain.User{}, fmt.Errorf("%w: malformed access token claims", ErrUnauthorized)
 	}
 	roles := append([]string(nil), claims.RealmAccess.Roles...)
-	return domain.User{ID: claims.Subject, Username: claims.PreferredUsername, Email: claims.Email, Roles: roles}, nil
+	return domain.User{ID: claims.Subject, Username: claims.PreferredUsername, Email: claims.Email, Name: claims.Name, Roles: roles}, nil
 }
 
 func BearerToken(header string) (string, error) {

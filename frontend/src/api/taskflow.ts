@@ -5,6 +5,9 @@ export const taskflowApi = {
   async me(): Promise<User> {
     return unwrapItem(await request<User | Record<string, unknown>>('/me'), 'user')
   },
+  async users(): Promise<User[]> {
+    return unwrapList(await request<User[] | Record<string, unknown>>('/users'), 'users')
+  },
   async projects(): Promise<Project[]> {
     return unwrapList(await request<Project[] | Record<string, unknown>>('/projects'), 'projects')
   },

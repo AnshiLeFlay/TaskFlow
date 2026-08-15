@@ -43,8 +43,11 @@ type AddMemberRequest struct {
 // MemberSummary is the response shape for the project members list: the
 // minimal identity a client needs to build an assignee picker.
 type MemberSummary struct {
-	UserID string             `json:"user_id"`
-	Role   domain.ProjectRole `json:"role"`
+	UserID   string             `json:"user_id"`
+	Username string             `json:"username,omitempty"`
+	Email    string             `json:"email,omitempty"`
+	Name     string             `json:"name,omitempty"`
+	Role     domain.ProjectRole `json:"role"`
 }
 
 type StatusRequest struct {
@@ -115,6 +118,7 @@ func NewRouter(service *application.Service, validator application.TokenValidato
 	v1 := router.PathPrefix("/api/v1").Subrouter()
 	v1.Use(api.authenticate)
 	v1.HandleFunc("/me", api.me).Methods(http.MethodGet)
+	v1.HandleFunc("/users", api.listUsers).Methods(http.MethodGet)
 	v1.HandleFunc("/projects", api.listProjects).Methods(http.MethodGet)
 	v1.HandleFunc("/projects", api.createProject).Methods(http.MethodPost)
 	v1.HandleFunc("/projects/{projectId}/members", api.listMembers).Methods(http.MethodGet)
@@ -170,6 +174,22 @@ func CurrentUser(ctx context.Context) (domain.User, bool) {
 // @Router /api/v1/me [get]
 func (a *API) me(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, mustUser(r)) }
 
+// listUsers godoc
+// @Summary List enabled Keycloak users
+// @Tags identity
+// @Security BearerAuth
+// @Success 200 {object} map[string][]domain.User
+// @Failure 401 {object} errorEnvelope
+// @Router /api/v1/users [get]
+func (a *API) listUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := a.service.ListUsers(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"users": users})
+}
+
 // listProjects godoc
 // @Summary List projects visible to the current user
 // @Tags projects
@@ -223,8 +243,17 @@ func (a *API) listMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	summaries := make([]MemberSummary, 0, len(members))
+	identities := make(map[string]domain.User)
+	if users, directoryErr := a.service.ListUsers(r.Context()); directoryErr == nil {
+		for _, user := range users {
+			identities[user.ID] = user
+		}
+	} else {
+		a.logger.Warn("could not enrich project members", "error", directoryErr, "project_id", mux.Vars(r)["projectId"])
+	}
 	for _, m := range members {
-		summaries = append(summaries, MemberSummary{UserID: m.UserID, Role: m.Role})
+		identity := identities[m.UserID]
+		summaries = append(summaries, MemberSummary{UserID: m.UserID, Username: identity.Username, Email: identity.Email, Name: identity.Name, Role: m.Role})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"members": summaries})
 }

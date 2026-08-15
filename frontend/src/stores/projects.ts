@@ -1,12 +1,13 @@
 import { defineStore } from 'pinia'
 import { taskflowApi } from '../api/taskflow'
-import type { Board, Project, ProjectMember, ProjectRole } from '../domain/types'
+import type { Board, Project, ProjectMember, ProjectRole, User } from '../domain/types'
 
 export const useProjectsStore = defineStore('projects', {
   state: () => ({
     projects: [] as Project[],
     boardsByProject: {} as Record<string, Board[]>,
     membersByProject: {} as Record<string, ProjectMember[]>,
+    users: [] as User[],
     loading: false,
     error: '',
   }),
@@ -38,13 +39,15 @@ export const useProjectsStore = defineStore('projects', {
     },
     async addMember(projectId: string, userId: string, role: ProjectRole): Promise<ProjectMember> {
       const member = await taskflowApi.addMember(projectId, { user_id: userId, role })
-      // Only append to an already-populated cache (i.e. loadMembers has genuinely
-      // fetched this project before). Never *create* the cache entry here: doing so
-      // would leave it containing only this one member, and loadMembers' "already
-      // cached, skip the fetch" check would then serve that incomplete list forever.
-      // Leaving the cache empty/absent lets the next loadMembers() do the real fetch.
-      if (this.membersByProject[projectId]) this.membersByProject[projectId].push(member)
+      // Refresh so the persistent list immediately contains the new member together
+      // with the identity fields supplied by the directory-enriched endpoint.
+      await this.loadMembers(projectId, true)
       return member
+    },
+    async loadUsers(force = false) {
+      if (!force && this.users.length) return this.users
+      this.users = await taskflowApi.users()
+      return this.users
     },
     async loadMembers(projectId: string, force = false) {
       if (!force && this.membersByProject[projectId]) return this.membersByProject[projectId]

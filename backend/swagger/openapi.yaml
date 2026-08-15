@@ -66,6 +66,21 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /api/v1/users:
+    get:
+      tags: [Users]
+      operationId: listUsers
+      summary: List enabled users available for project membership
+      responses:
+        '200':
+          description: User directory
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
   /api/v1/projects:
     get:
       tags: [Projects]
@@ -721,11 +736,23 @@ components:
         email:
           type: string
           format: email
+        name:
+          type: string
         roles:
           type: array
           uniqueItems: true
           items:
             type: string
+      additionalProperties: false
+
+    UserList:
+      type: object
+      required: [users]
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
       additionalProperties: false
 
     Project:
@@ -807,6 +834,13 @@ components:
         user_id:
           type: string
           description: Keycloak subject identifier
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        name:
+          type: string
         role:
           $ref: '#/components/schemas/ProjectRole'
       additionalProperties: false

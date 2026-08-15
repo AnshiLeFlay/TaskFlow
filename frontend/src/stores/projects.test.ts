@@ -8,6 +8,7 @@ vi.mock('../api/taskflow', () => ({
   taskflowApi: {
     addMember: vi.fn(),
     listMembers: vi.fn(),
+    users: vi.fn(),
   },
 }))
 
@@ -41,11 +42,13 @@ describe('projects store: member cache', () => {
     expect(store.membersByProject['project-1']).toEqual(fullList)
   })
 
-  it('keeps an already-populated cache in sync immediately, without waiting for a reload', async () => {
+  it('refreshes an already-populated cache after adding a member', async () => {
     // Pass a fresh array literal to the mock (rather than a shared reference) so this
     // test's own "before" snapshot below isn't mutated by the store's later push.
-    listMembersMock.mockResolvedValue([{ user_id: 'user-1', role: 'admin' }])
     const newMember: ProjectMember = { user_id: 'user-2', role: 'member' }
+    listMembersMock
+      .mockResolvedValueOnce([{ user_id: 'user-1', role: 'admin' }])
+      .mockResolvedValueOnce([{ user_id: 'user-1', role: 'admin' }, newMember])
     addMemberMock.mockResolvedValue(newMember)
 
     const store = useProjectsStore()
@@ -55,9 +58,7 @@ describe('projects store: member cache', () => {
     await store.addMember('project-1', 'user-2', 'member')
 
     expect(store.membersByProject['project-1']).toEqual([{ user_id: 'user-1', role: 'admin' }, newMember])
-    // The cache was already populated, so a subsequent loadMembers should serve it from
-    // cache rather than re-fetching.
     await store.loadMembers('project-1')
-    expect(listMembersMock).toHaveBeenCalledTimes(1)
+    expect(listMembersMock).toHaveBeenCalledTimes(2)
   })
 })
