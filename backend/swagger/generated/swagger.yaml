@@ -173,6 +173,8 @@ definitions:
         type: string
       id:
         type: string
+      name:
+        type: string
       roles:
         items:
           type: string
@@ -230,6 +232,19 @@ definitions:
       status_id:
         type: string
       title:
+        type: string
+    type: object
+  httpapi.MemberSummary:
+    properties:
+      email:
+        type: string
+      name:
+        type: string
+      role:
+        $ref: '#/definitions/domain.ProjectRole'
+      user_id:
+        type: string
+      username:
         type: string
     type: object
   httpapi.StatusRequest:
@@ -567,6 +582,39 @@ paths:
       tags:
       - boards
   /api/v1/projects/{projectId}/members:
+    get:
+      parameters:
+      - description: Project ID
+        in: path
+        name: projectId
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                $ref: '#/definitions/httpapi.MemberSummary'
+              type: array
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: List project members
+      tags:
+      - projects
     post:
       parameters:
       - description: Project ID
@@ -840,6 +888,26 @@ paths:
       summary: Transition a task after evaluating its persisted workflow rule
       tags:
       - tasks
+  /api/v1/users:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                $ref: '#/definitions/domain.User'
+              type: array
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/httpapi.errorEnvelope'
+      security:
+      - BearerAuth: []
+      summary: List enabled Keycloak users
+      tags:
+      - identity
   /healthz:
     get:
       responses:

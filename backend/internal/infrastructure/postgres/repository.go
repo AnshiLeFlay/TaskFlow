@@ -84,6 +84,23 @@ func (r *Repository) UpsertMember(ctx context.Context, member domain.Member) err
 	return mapError(err)
 }
 
+func (r *Repository) ListMembers(ctx context.Context, projectID string) ([]domain.Member, error) {
+	rows, err := r.pool.Query(ctx, `SELECT project_id,user_id,role,created_at FROM project_members WHERE project_id=$1 ORDER BY role,user_id`, projectID)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+	members := make([]domain.Member, 0)
+	for rows.Next() {
+		var m domain.Member
+		if err := rows.Scan(&m.ProjectID, &m.UserID, &m.Role, &m.CreatedAt); err != nil {
+			return nil, mapError(err)
+		}
+		members = append(members, m)
+	}
+	return members, mapError(rows.Err())
+}
+
 func (r *Repository) CreateBoard(ctx context.Context, board *domain.Board, statuses []domain.Status) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {

@@ -5,6 +5,7 @@ import AppIcon from '../components/AppIcon.vue'
 import BoardSettings from '../components/BoardSettings.vue'
 import TaskCard from '../components/TaskCard.vue'
 import TaskModal from '../components/TaskModal.vue'
+import { planStatusSwap } from '../domain/boardReorder'
 import type { BoardStatus, Task, WorkflowConditions, WorkflowRule } from '../domain/types'
 import { useBoardStore } from '../stores/board'
 import { useProjectsStore } from '../stores/projects'
@@ -23,6 +24,7 @@ const saving = ref(false)
 const settingsBusy = ref(false)
 const draggingId = ref('')
 const dropStatusId = ref('')
+const modalKey = ref(0)
 
 const projectId = computed(() => String(route.params.projectId || ''))
 const boardId = computed(() => String(route.params.boardId || ''))
@@ -30,6 +32,7 @@ const project = computed(() => projects.projects.find((item) => item.id === proj
 const boardOptions = computed(() => projects.boardsByProject[projectId.value] || [])
 const canManageBoard = computed(() => project.value?.role === 'admin')
 const canManageTasks = computed(() => project.value?.role === 'admin' || project.value?.role === 'member')
+const members = computed(() => projects.membersByProject[projectId.value] || [])
 const tasksByStatus = computed(() => {
   const result: Record<string, Task[]> = {}
   for (const status of boardStore.orderedStatuses) result[status.id] = []
@@ -50,13 +53,25 @@ watch([projectId, boardId], async ([nextProjectId, nextBoardId]) => {
   }
 }, { immediate: true })
 
+function loadMembersOrWarn(id: string) {
+  return projects.loadMembers(id).catch((error) => {
+    toasts.show('Could not load members', { tone: 'error', message: error instanceof Error ? error.message : undefined })
+    return []
+  })
+}
 function openNewTask(statusId = '') {
   if (!canManageTasks.value) return
   selectedTask.value = null
   initialStatusId.value = statusId || boardStore.orderedStatuses[0]?.id || ''
   modalOpen.value = true
+  if (projectId.value) loadMembersOrWarn(projectId.value)
 }
-function openTask(task: Task) { selectedTask.value = task; initialStatusId.value = task.status_id; modalOpen.value = true }
+function openTask(task: Task) {
+  selectedTask.value = task
+  initialStatusId.value = task.status_id
+  modalOpen.value = true
+  if (projectId.value) loadMembersOrWarn(projectId.value)
+}
 
 async function saveTask(input: { title: string; description?: string; status_id: string; assignee_id?: string | null; deadline?: string | null; comment?: string }) {
   saving.value = true
@@ -67,20 +82,42 @@ async function saveTask(input: { title: string; description?: string; status_id:
       const { comment: _comment, ...createInput } = input
       await boardStore.createTask(createInput)
       toasts.show('Task created', { tone: 'success', message: input.title })
-    } else {
-      if (input.comment) await boardStore.addComment(existing.id, input.comment)
-      await boardStore.updateTask(existing.id, {
-        title: input.title,
-        description: input.description,
-        assignee_id: input.assignee_id,
-        deadline: input.deadline,
-      })
-      if (statusChanged) await boardStore.transition(existing.id, input.status_id)
-      toasts.show('Task saved', { tone: 'success', message: input.title })
+      modalOpen.value = false
+      return
     }
+
+    const result = await boardStore.saveTaskEdits(existing.id, {
+      title: input.title,
+      description: input.description,
+      assignee_id: input.assignee_id,
+      deadline: input.deadline,
+      comment: input.comment,
+      statusChanged,
+      targetStatusId: input.status_id,
+    })
+    // boardStore.updateTask() (called inside saveTaskEdits) replaces the task object in
+    // board.tasks (rather than mutating it in place), so re-point selectedTask at that
+    // fresh object. This keeps the modal's :task prop in sync with the just-saved
+    // fields, and makes a reverted status (on a blocked transition, below) visible on
+    // the forced remount.
+    selectedTask.value = boardStore.board?.tasks.find((item) => item.id === existing.id) || existing
+
+    if (result.status === 'blocked') {
+      // Fields and comment are already persisted; only the status change was rejected.
+      // Remount the modal so it re-reads the (now-reverted) status from the task in the store.
+      modalKey.value += 1
+      toasts.show('Status change blocked', {
+        tone: 'error',
+        message: result.reason ? `Fields and comment were saved. Status change was blocked: ${result.reason}` : 'Fields and comment were saved. The status change was blocked.',
+        timeout: 6500,
+      })
+      return
+    }
+
+    toasts.show('Task saved', { tone: 'success', message: input.title })
     modalOpen.value = false
   } catch (error) {
-    toasts.show(statusChanged ? 'Transition blocked' : 'Could not save task', { tone: 'error', message: error instanceof Error ? error.message : undefined, timeout: 6500 })
+    toasts.show('Could not save task', { tone: 'error', message: error instanceof Error ? error.message : undefined, timeout: 6500 })
   } finally { saving.value = false }
 }
 
@@ -120,14 +157,23 @@ async function updateStatus(id: string, input: { name?: string; position?: numbe
   finally { settingsBusy.value = false }
 }
 async function reorderStatuses(first: BoardStatus, second: BoardStatus) {
+  // A direct two-call swap (first -> second's position, second -> first's
+  // position) always fails on the first call: `second` still occupies that
+  // position at that instant, and the backend now enforces a unique
+  // (board_id, position) index. planStatusSwap parks `first` beyond every
+  // status on the board first, so each of the three calls below is
+  // collision-free against the board's current state.
+  const steps = planStatusSwap(boardStore.orderedStatuses, first.id, second.id)
+  if (!steps.length) return
   settingsBusy.value = true
   const firstPosition = first.position
   const secondPosition = second.position
   first.position = secondPosition
   second.position = firstPosition
   try {
-    await boardStore.updateStatus(first.id, { position: secondPosition })
-    await boardStore.updateStatus(second.id, { position: firstPosition })
+    for (const step of steps) {
+      await boardStore.updateStatus(step.id, { position: step.position })
+    }
     await boardStore.load(boardId.value, true)
   } catch (error) {
     toasts.show('Could not reorder columns', { tone: 'error', message: error instanceof Error ? error.message : undefined })
@@ -197,7 +243,7 @@ async function deleteRule(rule: WorkflowRule) {
       </article>
     </section>
 
-    <TaskModal v-if="modalOpen" :task="selectedTask" :statuses="boardStore.orderedStatuses" :initial-status-id="initialStatusId" :busy="saving" :readonly="!canManageTasks" @close="modalOpen = false" @submit="saveTask" />
+    <TaskModal v-if="modalOpen" :key="modalKey" :task="selectedTask" :statuses="boardStore.orderedStatuses" :initial-status-id="initialStatusId" :members="members" :busy="saving" :readonly="!canManageTasks" @close="modalOpen = false" @submit="saveTask" />
     <BoardSettings v-if="showSettings" :statuses="boardStore.orderedStatuses" :rules="boardStore.board?.rules || []" :busy="settingsBusy" @close="showSettings = false" @create-status="createStatus" @update-status="updateStatus" @reorder-statuses="reorderStatuses" @delete-status="deleteStatus" @create-rule="createRule" @delete-rule="deleteRule" />
   </main>
 </template>

@@ -13,6 +13,7 @@ export interface ProjectMember {
   user_id: string
   username?: string
   email?: string
+  name?: string
   role: ProjectRole
 }
 

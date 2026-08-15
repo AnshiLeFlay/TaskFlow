@@ -102,6 +102,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .empty-state p { max-width: 390px; margin: 0 0 22px; color: var(--muted); font-size: 13px; line-height: 1.55; }
 .empty-inline { margin: 10px 0; color: #9698a2; font-size: 12px; text-align: center; }
 .empty-inline--box { padding: 25px 12px; border: 1px dashed var(--line); border-radius: 12px; }
+.project-member-list { display: grid; gap: 8px; margin-bottom: 20px; max-height: 220px; overflow: auto; }
+.project-member-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.project-member-row strong, .project-member-row small { display: block; }
+.project-member-row small { margin-top: 2px; color: #8c8e99; font-size: 11px; }
 
 .alert { padding: 13px 15px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-radius: 10px; font-size: 13px; }
 .alert--error { color: #a13b4a; background: #fff0f2; border: 1px solid #f5d5da; }

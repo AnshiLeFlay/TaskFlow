@@ -21,6 +21,7 @@ const realtime = new AuthenticatedRealtimeSession(() => new ProjectSocket(undefi
     activeBoardId: route.name === 'board' ? String(route.params.boardId || '') : '',
     board: boardStore.board,
     showToast: (title, options) => { toasts.show(title, options) },
+    currentUserId: auth.user?.id,
   })
 }))
 

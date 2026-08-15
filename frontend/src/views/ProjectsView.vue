@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppIcon from '../components/AppIcon.vue'
 import { useProjectsStore } from '../stores/projects'
@@ -17,6 +17,8 @@ const memberFor = ref('')
 const projectForm = reactive({ name: '', description: '' })
 const boardForm = reactive({ name: '', description: '' })
 const memberForm = reactive({ user_id: '', role: 'member' as ProjectRole })
+const visibleMembers = computed(() => memberFor.value ? projects.membersByProject[memberFor.value] || [] : [])
+const memberProject = computed(() => projects.projects.find((project) => project.id === memberFor.value))
 
 onMounted(() => { void projects.load() })
 
@@ -54,10 +56,31 @@ async function addMember(projectId: string) {
   if (!memberForm.user_id.trim()) return
   busy.value = true
   try {
-    await projects.addMember(projectId, memberForm.user_id.trim(), memberForm.role)
-    toasts.show('Member added', { tone: 'success' }); memberForm.user_id = ''; memberFor.value = ''
+    const user = projects.users.find((item) => item.id === memberForm.user_id)
+    await projects.addMember(projectId, memberForm.user_id, memberForm.role)
+    toasts.show('Member added', { tone: 'success', message: userLabel(user) }); memberForm.user_id = ''
   } catch (error) { toasts.show('Could not add member', { tone: 'error', message: error instanceof Error ? error.message : undefined }) }
   finally { busy.value = false }
+}
+
+async function openMembers(projectId: string) {
+  memberFor.value = projectId
+  memberForm.user_id = ''
+  try {
+    await Promise.all([projects.loadUsers(), projects.loadMembers(projectId, true)])
+  } catch (error) {
+    toasts.show('Could not load users', { tone: 'error', message: error instanceof Error ? error.message : undefined })
+  }
+}
+
+function isProjectMember(userId: string) { return visibleMembers.value.some((member) => member.user_id === userId) }
+function userLabel(user?: { id: string; name?: string; username?: string; email?: string }) {
+  if (!user) return 'User'
+  return user.name || user.username || user.email || user.id
+}
+function memberLabel(userId: string) {
+  const user = projects.users.find((item) => item.id === userId)
+  return userLabel(user) || userId
 }
 
 function toggleBoards(project: Project) {
@@ -91,7 +114,7 @@ function canAdmin(project: Project) { return project.role === 'admin' }
         </div>
         <Transition name="expand">
           <div v-if="activeProject?.id === project.id" class="project-boards">
-            <div class="section-row"><span>Boards</span><div v-if="canAdmin(project)"><button class="text-button" @click.stop="memberFor = project.id">+ Member</button><button class="text-button" @click.stop="creatingBoardFor = project.id">+ Board</button></div></div>
+            <div class="section-row"><span>Boards</span><div><button class="text-button" @click.stop="openMembers(project.id)">Members</button><button v-if="canAdmin(project)" class="text-button" @click.stop="creatingBoardFor = project.id">+ Board</button></div></div>
             <button v-for="board in projects.boardsByProject[project.id] || []" :key="board.id" class="board-row" @click.stop="router.push(`/projects/${project.id}/boards/${board.id}`)"><span class="board-row__dot"></span><span>{{ board.name }}</span><AppIcon name="arrow" :size="17" /></button>
             <p v-if="projects.boardsByProject[project.id]?.length === 0" class="empty-inline">No boards yet. Create the first one.</p>
           </div>
@@ -124,10 +147,19 @@ function canAdmin(project: Project) { return project.role === 'admin' }
 
     <div v-if="memberFor" class="modal-backdrop" @mousedown.self="memberFor = ''">
       <form class="modal modal--compact" data-testid="member-modal" @submit.prevent="addMember(memberFor)">
-        <div class="modal__head"><div><p class="eyebrow">Project access</p><h2>Add a member</h2></div><button type="button" class="icon-button" aria-label="Close" @click="memberFor = ''"><AppIcon name="close" /></button></div>
-        <label class="field"><span>User ID</span><input v-model="memberForm.user_id" required placeholder="Keycloak user UUID" data-testid="member-user-id" /></label>
-        <label class="field"><span>Role</span><select v-model="memberForm.role"><option value="member">Member</option><option value="viewer">Viewer</option><option value="admin">Admin</option></select></label>
-        <div class="modal__actions"><button type="button" class="button button--ghost" @click="memberFor = ''">Cancel</button><button class="button button--primary" :disabled="busy">Add member</button></div>
+        <div class="modal__head"><div><p class="eyebrow">Project access</p><h2>Members</h2></div><button type="button" class="icon-button" aria-label="Close" @click="memberFor = ''"><AppIcon name="close" /></button></div>
+        <div class="project-member-list" data-testid="project-member-list">
+          <div v-for="member in visibleMembers" :key="member.user_id" class="project-member-row">
+            <span><strong>{{ member.name || member.username || member.email || memberLabel(member.user_id) }}</strong><small>{{ member.email || member.user_id }}</small></span>
+            <span class="role-pill">{{ member.user_id === memberProject?.owner_id ? 'owner · admin' : member.role }}</span>
+          </div>
+          <p v-if="!visibleMembers.length" class="empty-inline">No members loaded.</p>
+        </div>
+        <template v-if="memberProject && canAdmin(memberProject)">
+          <label class="field"><span>User</span><select v-model="memberForm.user_id" required data-testid="member-user-id"><option value="" disabled>Select a user</option><option v-for="user in projects.users" :key="user.id" :value="user.id" :disabled="isProjectMember(user.id)">{{ userLabel(user) }}{{ isProjectMember(user.id) ? ' — already added' : '' }}</option></select></label>
+          <label class="field"><span>Role</span><select v-model="memberForm.role"><option value="member">Member</option><option value="viewer">Viewer</option><option value="admin">Admin</option></select></label>
+        </template>
+        <div class="modal__actions"><button type="button" class="button button--ghost" @click="memberFor = ''">Close</button><button v-if="memberProject && canAdmin(memberProject)" class="button button--primary" :disabled="busy || !memberForm.user_id">Add member</button></div>
       </form>
     </div>
   </main>

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log/slog"
 	"os"
 	"testing"
 
@@ -44,6 +45,47 @@ func TestLoadKeycloakSkipAudienceRejectsInvalidBoolean(t *testing.T) {
 	_, err := Load()
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "KEYCLOAK_SKIP_AUDIENCE must be a boolean")
+}
+
+func TestLoadLogLevelDefaultsToInfoWhenMissing(t *testing.T) {
+	setRequiredTestEnvironment(t)
+	unsetEnvironment(t, "LOG_LEVEL")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Equal(t, slog.LevelInfo, cfg.LogLevel)
+}
+
+func TestLoadLogLevelAcceptsKnownValuesCaseInsensitively(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		value string
+		want  slog.Level
+	}{
+		{name: "debug", value: "debug", want: slog.LevelDebug},
+		{name: "info", value: "info", want: slog.LevelInfo},
+		{name: "warn", value: "warn", want: slog.LevelWarn},
+		{name: "error", value: "error", want: slog.LevelError},
+		{name: "uppercase", value: "DEBUG", want: slog.LevelDebug},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			setRequiredTestEnvironment(t)
+			t.Setenv("LOG_LEVEL", test.value)
+
+			cfg, err := Load()
+			require.NoError(t, err)
+			assert.Equal(t, test.want, cfg.LogLevel)
+		})
+	}
+}
+
+func TestLoadLogLevelRejectsUnknownValue(t *testing.T) {
+	setRequiredTestEnvironment(t)
+	t.Setenv("LOG_LEVEL", "verbose")
+
+	_, err := Load()
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "LOG_LEVEL must be one of debug|info|warn|error")
 }
 
 // These tests deliberately do not call t.Parallel: process environment is shared.

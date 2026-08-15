@@ -9,7 +9,7 @@ function board(): Board {
     name: 'Active board',
     statuses: [],
     rules: [],
-    tasks: [{ id: 'task-1', board_id: 'board-active', status_id: 'todo', title: 'Existing task', comments: [] }],
+    tasks: [{ id: 'task-1', board_id: 'board-active', status_id: 'todo', title: 'Existing task', assignee_id: null, comments: [] }],
   }
 }
 
@@ -51,6 +51,78 @@ describe('realtime event handling', () => {
     expect(activeBoard.tasks).toHaveLength(1)
     expect(activeBoard.tasks[0].status_id).toBe('done')
     expect(showToast).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows a distinct toast when task.updated changes the assignee', () => {
+    const activeBoard = board()
+    const showToast = vi.fn()
+    const event: RealtimeEvent = {
+      type: 'task.updated',
+      board_id: activeBoard.id,
+      task_id: 'task-1',
+      payload: {
+        task: { id: 'task-1', board_id: activeBoard.id, status_id: 'todo', title: 'Existing task', assignee_id: 'user-2' },
+      },
+    }
+
+    handleRealtimeEvent(event, { activeBoardId: activeBoard.id, board: activeBoard, showToast })
+
+    expect(activeBoard.tasks[0].assignee_id).toBe('user-2')
+    expect(showToast).toHaveBeenCalledWith('Task assigned', expect.objectContaining({ tone: 'info', message: expect.stringContaining('Existing task') }))
+  })
+
+  it('says "You were assigned" when the current user becomes the assignee', () => {
+    const activeBoard = board()
+    const showToast = vi.fn()
+    const event: RealtimeEvent = {
+      type: 'task.updated',
+      board_id: activeBoard.id,
+      task_id: 'task-1',
+      payload: {
+        task: { id: 'task-1', board_id: activeBoard.id, status_id: 'todo', title: 'Existing task', assignee_id: 'user-2' },
+      },
+    }
+
+    handleRealtimeEvent(event, { activeBoardId: activeBoard.id, board: activeBoard, showToast, currentUserId: 'user-2' })
+
+    expect(showToast).toHaveBeenCalledWith('You were assigned', expect.objectContaining({ tone: 'info', message: expect.stringContaining('Existing task') }))
+  })
+
+  it('shows an unassignment toast — not an assignment toast — when the assignee is cleared', () => {
+    const activeBoard = board()
+    activeBoard.tasks[0].assignee_id = 'user-1'
+    const showToast = vi.fn()
+    const event: RealtimeEvent = {
+      type: 'task.updated',
+      board_id: activeBoard.id,
+      task_id: 'task-1',
+      payload: {
+        task: { id: 'task-1', board_id: activeBoard.id, status_id: 'todo', title: 'Existing task', assignee_id: null },
+      },
+    }
+
+    handleRealtimeEvent(event, { activeBoardId: activeBoard.id, board: activeBoard, showToast })
+
+    expect(activeBoard.tasks[0].assignee_id).toBeNull()
+    expect(showToast).toHaveBeenCalledWith('Task unassigned', expect.objectContaining({ tone: 'info', message: expect.stringContaining('Existing task') }))
+    expect(showToast).not.toHaveBeenCalledWith('Task assigned', expect.anything())
+  })
+
+  it('keeps the generic toast when task.updated does not change the assignee', () => {
+    const activeBoard = board()
+    const showToast = vi.fn()
+    const event: RealtimeEvent = {
+      type: 'task.updated',
+      board_id: activeBoard.id,
+      task_id: 'task-1',
+      payload: {
+        task: { id: 'task-1', board_id: activeBoard.id, status_id: 'todo', title: 'Existing task', description: 'Updated body', assignee_id: null },
+      },
+    }
+
+    handleRealtimeEvent(event, { activeBoardId: activeBoard.id, board: activeBoard, showToast })
+
+    expect(showToast).toHaveBeenCalledWith('Task updated', expect.objectContaining({ tone: 'info' }))
   })
 
   it('updates comments only while their board is active', () => {

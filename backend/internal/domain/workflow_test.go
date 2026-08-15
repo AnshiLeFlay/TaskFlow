@@ -15,6 +15,23 @@ func TestValidateTransitionRejectsMissingRule(t *testing.T) {
 	assert.ErrorIs(t, err, ErrTransitionNotAllowed)
 }
 
+func TestValidateTransitionRejectsEmptyTargetStatusID(t *testing.T) {
+	task := Task{StatusID: "todo", AuthorID: "author"}
+	err := ValidateTransition(task, nil, "", TransitionContext{ActorID: "author", ProjectRole: RoleMember})
+	require.Error(t, err)
+	var validation *ValidationError
+	require.ErrorAs(t, err, &validation)
+	assert.Equal(t, "target_status_id", validation.Field)
+}
+
+func TestValidateTransitionRejectsTargetSameAsCurrentStatus(t *testing.T) {
+	task := Task{StatusID: "todo", AuthorID: "author"}
+	err := ValidateTransition(task, nil, "todo", TransitionContext{ActorID: "author", ProjectRole: RoleMember})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrTransitionNotAllowed)
+	assert.Contains(t, err.Error(), "already in target status")
+}
+
 func TestValidateTransitionChecksEveryConfiguredCondition(t *testing.T) {
 	assignee := "assignee"
 	task := Task{StatusID: "review", AuthorID: "author", AssigneeID: &assignee}

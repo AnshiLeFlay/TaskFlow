@@ -1,18 +1,22 @@
 package httpapi
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/example/taskflow/backend/internal/application"
 	"github.com/example/taskflow/backend/internal/domain"
 	"github.com/example/taskflow/backend/internal/infrastructure/auth"
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 )
 
@@ -20,7 +24,7 @@ type userContextKey struct{}
 
 type API struct {
 	service   *application.Service
-	validator auth.TokenValidator
+	validator application.TokenValidator
 	logger    *slog.Logger
 }
 
@@ -34,6 +38,16 @@ type CreateProjectRequest struct {
 type AddMemberRequest struct {
 	UserID string             `json:"user_id"`
 	Role   domain.ProjectRole `json:"role"`
+}
+
+// MemberSummary is the response shape for the project members list: the
+// minimal identity a client needs to build an assignee picker.
+type MemberSummary struct {
+	UserID   string             `json:"user_id"`
+	Username string             `json:"username,omitempty"`
+	Email    string             `json:"email,omitempty"`
+	Name     string             `json:"name,omitempty"`
+	Role     domain.ProjectRole `json:"role"`
 }
 
 type StatusRequest struct {
@@ -87,7 +101,7 @@ type TransitionTaskRequest struct {
 	TargetStatusID string `json:"target_status_id"`
 }
 
-func NewRouter(service *application.Service, validator auth.TokenValidator, wsHandler http.Handler, swaggerDir string, allowedOrigins []string, logger *slog.Logger) http.Handler {
+func NewRouter(service *application.Service, validator application.TokenValidator, wsHandler http.Handler, swaggerDir string, allowedOrigins []string, logger *slog.Logger) http.Handler {
 	api := &API{service: service, validator: validator, logger: logger}
 	router := mux.NewRouter()
 	router.Use(api.recoverPanic)
@@ -104,8 +118,10 @@ func NewRouter(service *application.Service, validator auth.TokenValidator, wsHa
 	v1 := router.PathPrefix("/api/v1").Subrouter()
 	v1.Use(api.authenticate)
 	v1.HandleFunc("/me", api.me).Methods(http.MethodGet)
+	v1.HandleFunc("/users", api.listUsers).Methods(http.MethodGet)
 	v1.HandleFunc("/projects", api.listProjects).Methods(http.MethodGet)
 	v1.HandleFunc("/projects", api.createProject).Methods(http.MethodPost)
+	v1.HandleFunc("/projects/{projectId}/members", api.listMembers).Methods(http.MethodGet)
 	v1.HandleFunc("/projects/{projectId}/members", api.addMember).Methods(http.MethodPost)
 	v1.HandleFunc("/projects/{projectId}/boards", api.listBoards).Methods(http.MethodGet)
 	v1.HandleFunc("/projects/{projectId}/boards", api.createBoard).Methods(http.MethodPost)
@@ -158,6 +174,22 @@ func CurrentUser(ctx context.Context) (domain.User, bool) {
 // @Router /api/v1/me [get]
 func (a *API) me(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, mustUser(r)) }
 
+// listUsers godoc
+// @Summary List enabled Keycloak users
+// @Tags identity
+// @Security BearerAuth
+// @Success 200 {object} map[string][]domain.User
+// @Failure 401 {object} errorEnvelope
+// @Router /api/v1/users [get]
+func (a *API) listUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := a.service.ListUsers(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"users": users})
+}
+
 // listProjects godoc
 // @Summary List projects visible to the current user
 // @Tags projects
@@ -192,6 +224,38 @@ func (a *API) createProject(w http.ResponseWriter, r *http.Request) {
 	}
 	project, err := a.service.CreateProject(r.Context(), mustUser(r), application.CreateProjectCommand{Name: req.Name, Description: req.Description})
 	respond(w, http.StatusCreated, project, err)
+}
+
+// listMembers godoc
+// @Summary List project members
+// @Tags projects
+// @Security BearerAuth
+// @Param projectId path string true "Project ID"
+// @Success 200 {object} map[string][]MemberSummary
+// @Failure 401 {object} errorEnvelope
+// @Failure 403 {object} errorEnvelope
+// @Failure 404 {object} errorEnvelope
+// @Router /api/v1/projects/{projectId}/members [get]
+func (a *API) listMembers(w http.ResponseWriter, r *http.Request) {
+	members, err := a.service.ListMembers(r.Context(), mustUser(r), mux.Vars(r)["projectId"])
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	summaries := make([]MemberSummary, 0, len(members))
+	identities := make(map[string]domain.User)
+	if users, directoryErr := a.service.ListUsers(r.Context()); directoryErr == nil {
+		for _, user := range users {
+			identities[user.ID] = user
+		}
+	} else {
+		a.logger.Warn("could not enrich project members", "error", directoryErr, "project_id", mux.Vars(r)["projectId"])
+	}
+	for _, m := range members {
+		identity := identities[m.UserID]
+		summaries = append(summaries, MemberSummary{UserID: m.UserID, Username: identity.Username, Email: identity.Email, Name: identity.Name, Role: m.Role})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"members": summaries})
 }
 
 // addMember godoc
@@ -572,11 +636,71 @@ func (a *API) recoverPanic(next http.Handler) http.Handler {
 
 func (a *API) accessLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestID := strings.TrimSpace(r.Header.Get("X-Request-ID"))
+		if requestID == "" {
+			requestID = uuid.NewString()
+		}
+		w.Header().Set("X-Request-ID", requestID)
+		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		started := time.Now()
-		next.ServeHTTP(w, r)
-		a.logger.Info("HTTP request", "method", r.Method, "path", r.URL.Path, "duration", time.Since(started))
+		next.ServeHTTP(recorder, r)
+		a.logger.Info("HTTP request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", recorder.status,
+			"duration", time.Since(started),
+			"request_id", requestID,
+		)
 	})
 }
+
+// statusRecorder wraps http.ResponseWriter to capture the status code written
+// by downstream handlers so the access-log middleware can log it.
+type statusRecorder struct {
+	http.ResponseWriter
+	status      int
+	wroteHeader bool
+}
+
+func (rec *statusRecorder) WriteHeader(status int) {
+	if !rec.wroteHeader {
+		rec.status = status
+		rec.wroteHeader = true
+	}
+	rec.ResponseWriter.WriteHeader(status)
+}
+
+func (rec *statusRecorder) Write(b []byte) (int, error) {
+	if !rec.wroteHeader {
+		rec.status = http.StatusOK
+		rec.wroteHeader = true
+	}
+	return rec.ResponseWriter.Write(b)
+}
+
+// Hijack forwards to the underlying ResponseWriter's http.Hijacker when
+// available. Without this, wrapping the ResponseWriter here would silently
+// break every WebSocket upgrade: gorilla/websocket upgrades via a direct
+// w.(http.Hijacker) type assertion, and statusRecorder would fail it.
+func (rec *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := rec.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("response writer does not implement http.Hijacker")
+	}
+	return h.Hijack()
+}
+
+// Flush forwards to the underlying ResponseWriter's http.Flusher when
+// available, so streaming responses still work through this middleware.
+func (rec *statusRecorder) Flush() {
+	if f, ok := rec.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Unwrap lets callers (and the stdlib's http.ResponseController) reach the
+// underlying ResponseWriter, per the http.ResponseWriter wrapping convention.
+func (rec *statusRecorder) Unwrap() http.ResponseWriter { return rec.ResponseWriter }
 
 func cors(allowed []string) mux.MiddlewareFunc {
 	set := make(map[string]struct{}, len(allowed))

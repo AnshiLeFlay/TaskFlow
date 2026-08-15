@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, reactive, watch } from 'vue'
-import type { BoardStatus, Task } from '../domain/types'
+import type { BoardStatus, ProjectMember, Task } from '../domain/types'
 import AppIcon from './AppIcon.vue'
 
-const props = defineProps<{ task: Task | null; statuses: BoardStatus[]; initialStatusId?: string; busy?: boolean; readonly?: boolean }>()
+const props = defineProps<{ task: Task | null; statuses: BoardStatus[]; initialStatusId?: string; members?: ProjectMember[]; busy?: boolean; readonly?: boolean }>()
 const emit = defineEmits<{
   close: []
   submit: [value: { title: string; description?: string; status_id: string; assignee_id?: string | null; deadline?: string | null; comment?: string }]
@@ -11,6 +11,13 @@ const emit = defineEmits<{
 
 const form = reactive({ title: '', description: '', status_id: '', assignee_id: '', deadline: '', comment: '' })
 const editing = computed(() => Boolean(props.task))
+const assigneeOptions = computed<ProjectMember[]>(() => {
+  const list = (props.members || []).filter((member) => member.role !== 'viewer')
+  if (form.assignee_id && !list.some((member) => member.user_id === form.assignee_id)) {
+    return [...list, { user_id: form.assignee_id, role: 'member' }]
+  }
+  return list
+})
 
 watch(() => [props.task, props.initialStatusId] as const, () => {
   form.title = props.task?.title || ''
@@ -32,6 +39,11 @@ function submit() {
     deadline: form.deadline ? new Date(`${form.deadline}T23:59:59`).toISOString() : null,
     comment: form.comment.trim() || undefined,
   })
+}
+
+function memberLabel(member: ProjectMember) {
+  const identity = member.name || member.username || member.email || member.user_id
+  return `${identity} (${member.role})`
 }
 </script>
 
@@ -56,7 +68,7 @@ function submit() {
         </div>
         <aside class="task-form-side">
           <label class="field"><span>Status</span><select v-model="form.status_id" :disabled="readonly" required data-testid="task-status"><option v-for="status in statuses" :key="status.id" :value="status.id">{{ status.name }}</option></select></label>
-          <label class="field"><span>Assignee ID</span><input v-model="form.assignee_id" :readonly="readonly" placeholder="Keycloak user UUID" data-testid="task-assignee" /></label>
+          <label class="field"><span>Assignee</span><select v-model="form.assignee_id" :disabled="readonly" data-testid="task-assignee"><option value="">Unassigned</option><option v-for="member in assigneeOptions" :key="member.user_id" :value="member.user_id">{{ memberLabel(member) }}</option></select></label>
           <label class="field"><span>Deadline</span><input v-model="form.deadline" :disabled="readonly" type="date" data-testid="task-deadline" /></label>
           <div v-if="editing && task?.author_id" class="meta-note"><span>Created by</span><code>{{ task.author_id }}</code></div>
         </aside>

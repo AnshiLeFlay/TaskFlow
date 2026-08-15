@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -9,16 +10,21 @@ import (
 )
 
 type Config struct {
-	HTTPAddr             string
-	GRPCAddr             string
-	DatabaseURL          string
-	MigrationsURL        string
-	KeycloakIssuerURL    string
-	KeycloakJWKSURL      string
-	KeycloakClientID     string
-	KeycloakSkipAudience bool
-	AllowedOrigins       []string
-	ShutdownTimeout      time.Duration
+	HTTPAddr                string
+	GRPCAddr                string
+	DatabaseURL             string
+	MigrationsURL           string
+	KeycloakIssuerURL       string
+	KeycloakJWKSURL         string
+	KeycloakClientID        string
+	KeycloakSkipAudience    bool
+	KeycloakAdminURL        string
+	KeycloakRealm           string
+	KeycloakDirectoryID     string
+	KeycloakDirectorySecret string
+	AllowedOrigins          []string
+	ShutdownTimeout         time.Duration
+	LogLevel                slog.Level
 }
 
 func Load() (Config, error) {
@@ -27,17 +33,26 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	logLevel, err := envLogLevel("LOG_LEVEL", slog.LevelInfo)
+	if err != nil {
+		return Config{}, err
+	}
 	cfg := Config{
-		HTTPAddr:             env("HTTP_ADDR", ":8080"),
-		GRPCAddr:             env("GRPC_ADDR", ":50051"),
-		DatabaseURL:          strings.TrimSpace(os.Getenv("DATABASE_URL")),
-		MigrationsURL:        env("MIGRATIONS_URL", "file://migrations"),
-		KeycloakIssuerURL:    issuer,
-		KeycloakJWKSURL:      env("KEYCLOAK_JWKS_URL", strings.TrimRight(issuer, "/")+"/protocol/openid-connect/certs"),
-		KeycloakClientID:     env("KEYCLOAK_CLIENT_ID", "taskflow-web"),
-		KeycloakSkipAudience: skipAudience,
-		AllowedOrigins:       splitCSV(env("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:8081")),
-		ShutdownTimeout:      envDuration("SHUTDOWN_TIMEOUT", 10*time.Second),
+		HTTPAddr:                env("HTTP_ADDR", ":8080"),
+		GRPCAddr:                env("GRPC_ADDR", ":50051"),
+		DatabaseURL:             strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		MigrationsURL:           env("MIGRATIONS_URL", "file://migrations"),
+		KeycloakIssuerURL:       issuer,
+		KeycloakJWKSURL:         env("KEYCLOAK_JWKS_URL", strings.TrimRight(issuer, "/")+"/protocol/openid-connect/certs"),
+		KeycloakClientID:        env("KEYCLOAK_CLIENT_ID", "taskflow-web"),
+		KeycloakSkipAudience:    skipAudience,
+		KeycloakAdminURL:        env("KEYCLOAK_ADMIN_URL", "http://keycloak:8080"),
+		KeycloakRealm:           env("KEYCLOAK_REALM", "taskflow"),
+		KeycloakDirectoryID:     env("KEYCLOAK_DIRECTORY_CLIENT_ID", "taskflow-backend"),
+		KeycloakDirectorySecret: env("KEYCLOAK_DIRECTORY_CLIENT_SECRET", "taskflow-backend-secret"),
+		AllowedOrigins:          splitCSV(env("CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:8081")),
+		ShutdownTimeout:         envDuration("SHUTDOWN_TIMEOUT", 10*time.Second),
+		LogLevel:                logLevel,
 	}
 	if cfg.DatabaseURL == "" {
 		return Config{}, fmt.Errorf("DATABASE_URL is required")
@@ -62,6 +77,24 @@ func envBool(name string, fallback bool) (bool, error) {
 		return false, fmt.Errorf("%s must be a boolean: %w", name, err)
 	}
 	return parsed, nil
+}
+
+func envLogLevel(name string, fallback slog.Level) (slog.Level, error) {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
+	switch value {
+	case "":
+		return fallback, nil
+	case "debug":
+		return slog.LevelDebug, nil
+	case "info":
+		return slog.LevelInfo, nil
+	case "warn":
+		return slog.LevelWarn, nil
+	case "error":
+		return slog.LevelError, nil
+	default:
+		return fallback, fmt.Errorf("%s must be one of debug|info|warn|error", name)
+	}
 }
 
 func envDuration(name string, fallback time.Duration) time.Duration {
