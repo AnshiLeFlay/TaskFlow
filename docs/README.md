@@ -22,6 +22,7 @@ Wait until `docker compose ps` reports all services healthy.
 | --- | --- |
 | Vue application | <http://localhost:8081> |
 | REST API | <http://localhost:8080/api/v1> |
+| MCP Streamable HTTP | <http://localhost:8080/mcp> |
 | Swagger UI (annotation-generated contract) | <http://localhost:8080/swagger/> |
 | Reviewed OpenAPI 3 YAML | <http://localhost:8080/swagger/openapi.yaml> |
 | WebSocket | `ws://localhost:8080/ws` |
@@ -72,6 +73,52 @@ curl -s -X POST \
 Use the returned `access_token` as `Authorization: Bearer <token>`. All API
 errors use a JSON error body and an appropriate HTTP status.
 
+## MCP agents
+
+TaskFlow exposes a stateless Streamable HTTP MCP server at `/mcp`. It uses the
+same application services, project RBAC and workflow rules as the REST API, but
+has its own OAuth audience. Protected-resource discovery is available at
+`/.well-known/oauth-protected-resource/mcp`; an unauthenticated MCP request
+links to it from the `WWW-Authenticate` challenge.
+
+Register every agent as its own public Authorization Code + PKCE client. Use
+the exact callback URI reported by that agent:
+
+```sh
+make mcp-client \
+  CLIENT_ID=codex-taskflow \
+  REDIRECT_URIS=http://127.0.0.1:1455/callback
+
+make mcp-client \
+  CLIENT_ID=claude-taskflow \
+  REDIRECT_URIS=http://127.0.0.1:1456/callback
+```
+
+Multiple callback URIs may be comma-separated. Only HTTPS callbacks and
+localhost loopback callbacks are accepted. Configure the MCP client with URL
+`http://localhost:8080/mcp`, the registered client ID, and requested scope
+`taskflow:mcp`.
+
+The access token identifies the interactive Keycloak user. The agent therefore
+has exactly that user's project permissions; viewer/member/admin restrictions
+and workflow conditions are not bypassed. Registering an OAuth client does not
+grant project membership.
+
+For non-local deployment, set `MCP_PUBLIC_URL` and `MCP_AUDIENCE` to the same
+public HTTPS URL and restrict `MCP_ALLOWED_ORIGINS`. Plain HTTP is accepted only
+for localhost and loopback addresses. Set `MCP_ALLOWED_ORIGINS` to an empty
+value when only native (non-browser) MCP clients should be accepted.
+
+The server exposes explicit tools for users, projects, membership, boards,
+statuses, workflow rules, tasks, assignments, comments and transitions. It
+does not invent delete operations for tasks, projects, boards or members,
+because those operations do not exist in the TaskFlow domain.
+
+Tool arguments use `snake_case` and successful results are structured JSON.
+Business failures are returned as MCP tool errors with
+`{"error":{"code":"...","message":"...","details":{}}}`; token and origin
+failures remain HTTP `401`/`403` responses and are not exposed as tool output.
+
 ## API and realtime interfaces
 
 The reviewed contract is [../swagger/openapi.yaml](../swagger/openapi.yaml).
@@ -111,11 +158,11 @@ the wire contract and [architecture.md](architecture.md) for delivery semantics.
 ```sh
 make env                 # copy .env.example to .env if missing
 make test-backend        # unit and application tests, race detector
-make test-backend-docker # same suite, built and run inside golang:1.23-alpine (no local Go)
+make test-backend-docker # same suite, built and run inside golang:1.25-alpine (no local Go)
 make test-integration    # repository tests against PostgreSQL
 make test-frontend       # typecheck, component tests when present, production build
 make test-all            # test-backend + test-frontend + test-integration
-make e2e                 # two Playwright scenarios, headless
+make e2e                 # four Playwright scenarios, including real MCP OAuth PKCE
 make e2e-headed          # same scenarios with a visible browser
 make e2e-full            # bring the stack up (build + wait) and run e2e headless
 make swagger             # regenerate Swagger output from Go annotations

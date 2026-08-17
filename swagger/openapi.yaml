@@ -17,6 +17,7 @@ tags:
   - name: Workflow
   - name: Tasks
   - name: Realtime
+  - name: MCP
 security:
   - bearerAuth: []
 
@@ -50,6 +51,72 @@ paths:
                 $ref: '#/components/schemas/ReadinessStatus'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+
+  /.well-known/oauth-protected-resource/mcp:
+    get:
+      tags: [MCP]
+      operationId: getMCPProtectedResourceMetadata
+      summary: Discover OAuth settings for the MCP protected resource
+      security: []
+      responses:
+        '200':
+          description: RFC 9728 protected resource metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MCPProtectedResourceMetadata'
+    head:
+      tags: [MCP]
+      operationId: headMCPProtectedResourceMetadata
+      summary: Check OAuth protected-resource metadata availability
+      security: []
+      responses:
+        '200':
+          description: Metadata endpoint is available
+
+  /mcp:
+    options:
+      tags: [MCP]
+      operationId: preflightMCP
+      summary: MCP browser CORS preflight
+      security: []
+      responses:
+        '204':
+          description: Origin is allowed
+        '403':
+          description: Origin is not allowed
+    post:
+      tags: [MCP]
+      operationId: callMCP
+      summary: Stateless MCP Streamable HTTP endpoint
+      description: Requires an access token issued specifically for MCP_PUBLIC_URL with the taskflow:mcp scope.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MCPMessage'
+      responses:
+        '200':
+          description: MCP JSON-RPC response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MCPMessage'
+        '202':
+          description: MCP notification accepted without a JSON-RPC response body
+        '400':
+          description: Invalid MCP or JSON-RPC request
+        '401':
+          description: OAuth challenge with RFC 9728 resource_metadata URL
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: string
+        '403':
+          description: Browser origin is not allowed
+        '405':
+          description: Only POST and OPTIONS are accepted
 
   /api/v1/me:
     get:
@@ -704,6 +771,33 @@ components:
       properties:
         error:
           $ref: '#/components/schemas/Error'
+      additionalProperties: false
+
+    MCPMessage:
+      type: object
+      additionalProperties: true
+    MCPProtectedResourceMetadata:
+      type: object
+      required: [resource, authorization_servers, bearer_methods_supported]
+      properties:
+        resource:
+          type: string
+          format: uri
+        authorization_servers:
+          type: array
+          items:
+            type: string
+            format: uri
+        scopes_supported:
+          type: array
+          items:
+            type: string
+        bearer_methods_supported:
+          type: array
+          items:
+            type: string
+        resource_name:
+          type: string
       additionalProperties: false
     Error:
       type: object

@@ -30,9 +30,11 @@ import (
 	"github.com/example/taskflow/backend/internal/infrastructure/realtime"
 	"github.com/example/taskflow/backend/internal/interfaces/grpcapi"
 	"github.com/example/taskflow/backend/internal/interfaces/httpapi"
+	"github.com/example/taskflow/backend/internal/interfaces/mcpapi"
 	wsapi "github.com/example/taskflow/backend/internal/interfaces/websocket"
 	"github.com/example/taskflow/backend/pkg/config"
 	taskflowv1 "github.com/example/taskflow/backend/proto/taskflowv1"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
@@ -81,10 +83,36 @@ func run(logger *slog.Logger, cfg config.Config) error {
 	directory := auth.NewKeycloakDirectory(cfg.KeycloakAdminURL, cfg.KeycloakRealm, cfg.KeycloakDirectoryID, cfg.KeycloakDirectorySecret)
 	service := application.NewService(repository, broker, application.WithUserDirectory(directory))
 	websocketHandler := wsapi.NewHandler(service, validator, broker, cfg.AllowedOrigins, logger)
+	httpHandler := httpapi.NewRouter(service, validator, websocketHandler, "swagger", cfg.AllowedOrigins, logger)
+	if cfg.MCPEnabled {
+		mcpValidator, err := auth.NewKeycloakVerifier(ctx, cfg.KeycloakIssuerURL, cfg.KeycloakJWKSURL, cfg.MCPAudience, false)
+		if err != nil {
+			return fmt.Errorf("configure MCP token verifier: %w", err)
+		}
+		mcpHTTPAuth, err := mcpapi.NewHTTPAuth(mcpValidator, mcpapi.HTTPAuthOptions{
+			PublicURL:           cfg.MCPPublicURL,
+			AuthorizationServer: cfg.KeycloakIssuerURL,
+			AllowedOrigins:      cfg.MCPAllowedOrigins,
+		})
+		if err != nil {
+			return fmt.Errorf("configure MCP HTTP authorization: %w", err)
+		}
+		mcpServer := mcpapi.NewServer(service)
+		mcpTransport := mcp.NewStreamableHTTPHandler(
+			func(*http.Request) *mcp.Server { return mcpServer },
+			&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, PropagateRequestCancellation: true},
+		)
+		root := http.NewServeMux()
+		root.Handle("/mcp", mcpapi.ObserveHTTP(logger, mcpHTTPAuth.Protect(mcpTransport)))
+		root.Handle("/.well-known/oauth-protected-resource/mcp", mcpapi.ObserveHTTP(logger, mcpHTTPAuth.MetadataHandler()))
+		root.Handle("/", httpHandler)
+		httpHandler = root
+		logger.Info("MCP server enabled", "url", cfg.MCPPublicURL)
+	}
 
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.NewRouter(service, validator, websocketHandler, "swagger", cfg.AllowedOrigins, logger),
+		Handler:           httpHandler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

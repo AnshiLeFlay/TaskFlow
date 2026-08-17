@@ -56,17 +56,66 @@ func TestKeycloakVerifierRejectsTokenForAnotherAudience(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestKeycloakVerifierRejectsWrongIssuerAndExpiredToken(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	keyID := "oauth-test-key"
+	jwks := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"keys": []map[string]string{{
+			"kty": "RSA",
+			"kid": keyID,
+			"use": "sig",
+			"alg": "RS256",
+			"n":   base64.RawURLEncoding.EncodeToString(key.PublicKey.N.Bytes()),
+			"e":   base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.PublicKey.E)).Bytes()),
+		}}})
+	}))
+	defer jwks.Close()
+
+	const issuer = "https://identity.example.test/realms/taskflow"
+	const mcpAudience = "https://taskflow.example.test/mcp"
+	verifier, err := NewKeycloakVerifier(context.Background(), issuer, jwks.URL, mcpAudience, false)
+	require.NoError(t, err)
+
+	wrongIssuer := signAccessToken(t, key, keyID, "https://attacker.example.test/realms/taskflow", mcpAudience)
+	_, err = verifier.Verify(context.Background(), wrongIssuer)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrUnauthorized)
+
+	now := time.Now()
+	expired := signAccessTokenAt(t, key, keyID, issuer, mcpAudience, now.Add(-2*time.Hour), now.Add(-time.Hour))
+	_, err = verifier.Verify(context.Background(), expired)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrUnauthorized)
+
+	webToken := signAccessToken(t, key, keyID, issuer, "taskflow-web")
+	_, err = verifier.Verify(context.Background(), webToken)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrUnauthorized)
+
+	validMCPToken := signAccessToken(t, key, keyID, issuer, mcpAudience)
+	user, err := verifier.Verify(context.Background(), validMCPToken)
+	require.NoError(t, err)
+	assert.Equal(t, "user-subject", user.ID)
+}
+
 func signAccessToken(t *testing.T, key *rsa.PrivateKey, keyID, issuer, audience string) string {
+	t.Helper()
+	now := time.Now()
+	return signAccessTokenAt(t, key, keyID, issuer, audience, now, now.Add(time.Hour))
+}
+
+func signAccessTokenAt(t *testing.T, key *rsa.PrivateKey, keyID, issuer, audience string, issuedAt, expiresAt time.Time) string {
 	t.Helper()
 	header, err := json.Marshal(map[string]any{"alg": "RS256", "kid": keyID, "typ": "JWT"})
 	require.NoError(t, err)
-	now := time.Now()
 	claims, err := json.Marshal(map[string]any{
 		"iss": issuer,
 		"sub": "user-subject",
 		"aud": audience,
-		"iat": now.Unix(),
-		"exp": now.Add(time.Hour).Unix(),
+		"iat": issuedAt.Unix(),
+		"exp": expiresAt.Unix(),
 	})
 	require.NoError(t, err)
 	encoded := base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(claims)

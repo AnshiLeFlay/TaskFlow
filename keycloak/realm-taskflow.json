@@ -69,6 +69,31 @@
       "serviceAccountsEnabled": true
     }
   ],
+  "clientScopes": [
+    {
+      "name": "taskflow:mcp",
+      "description": "Access TaskFlow through its MCP protected resource",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "true",
+        "consent.screen.text": "Manage TaskFlow through an AI agent"
+      },
+      "protocolMappers": [
+        {
+          "name": "taskflow-mcp-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "http://localhost:8080/mcp",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
   "users": [
     {
       "username": "service-account-taskflow-backend",

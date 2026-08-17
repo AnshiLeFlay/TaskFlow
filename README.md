@@ -31,6 +31,7 @@ swagger/    Reviewed OpenAPI 3 contract and generated Swagger output
 | --- | --- |
 | Vue application (UI) | <http://localhost:8081> |
 | REST API | <http://localhost:8080/api/v1> |
+| MCP (OAuth-protected Streamable HTTP) | <http://localhost:8080/mcp> |
 | Swagger UI | <http://localhost:8080/swagger/> |
 | gRPC | `localhost:50051` |
 | Keycloak | <http://localhost:8082> |
@@ -50,7 +51,7 @@ at <http://localhost:8081>.
 ```sh
 make env                 # copy .env.example to .env if missing
 make test                # backend unit tests + frontend typecheck/build
-make test-backend-docker # backend tests inside the golang:1.23-alpine test stage
+make test-backend-docker # backend tests inside the golang:1.25-alpine test stage
 make test-integration    # repository tests against PostgreSQL
 make test-all            # test + test-integration
 make e2e                 # Playwright e2e (stack must already be running)
@@ -61,8 +62,8 @@ Run `make help` for the full target list.
 
 ## Documentation
 
-See [docs/README.md](docs/README.md) for credentials, authentication, the API
-and realtime interfaces, and operational notes. Further detail:
+See [docs/README.md](docs/README.md) for credentials, authentication, REST,
+realtime and MCP interfaces, and operational notes. Further detail:
 
 - [docs/ERD.md](docs/ERD.md) — relational model
 - [docs/architecture.md](docs/architecture.md) — layers and trust boundaries

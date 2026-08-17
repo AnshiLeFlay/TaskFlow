@@ -1,7 +1,7 @@
-.PHONY: help env up down logs build fmt vet test test-backend test-backend-docker test-integration test-frontend test-all e2e e2e-headed e2e-full swagger swagger-check proto clean
+.PHONY: help env up down logs build mcp-client fmt vet test test-backend test-backend-docker test-integration test-frontend test-all e2e e2e-headed e2e-full swagger swagger-check proto clean
 
 help:
-	@echo "TaskFlow targets: env, up, down, logs, build, fmt, vet, test, test-backend, test-backend-docker, test-integration, test-frontend, test-all, e2e, e2e-headed, e2e-full, swagger, swagger-check, proto"
+	@echo "TaskFlow targets: env, up, down, logs, build, mcp-client, fmt, vet, test, test-backend, test-backend-docker, test-integration, test-frontend, test-all, e2e, e2e-headed, e2e-full, swagger, swagger-check, proto"
 	@echo "  test        - backend (local go) + frontend tests; requires a local Go toolchain"
 	@echo "  test-all    - backend (dockerized) + frontend + integration tests; no local Go required"
 
@@ -19,6 +19,14 @@ logs:
 
 build:
 	docker compose build
+
+# Register or update a public OAuth client for an MCP agent. Example:
+# make mcp-client CLIENT_ID=codex REDIRECT_URIS=http://127.0.0.1:1455/callback
+mcp-client:
+	docker compose exec -T \
+		-e MCP_CLIENT_ID="$(CLIENT_ID)" \
+		-e MCP_REDIRECT_URIS="$(REDIRECT_URIS)" \
+		keycloak sh /opt/keycloak/bin/register-mcp-client.sh
 
 # fmt/vet run inside the Dockerfile's "base" stage so there is no dependency
 # on a local Go toolchain.
@@ -53,15 +61,18 @@ test-frontend:
 test-all: test-backend-docker test-frontend test-integration
 
 e2e:
+	$(MAKE) mcp-client CLIENT_ID=taskflow-mcp-e2e REDIRECT_URIS=http://127.0.0.1:1457/callback
 	cd e2e && npm ci && npx playwright install --with-deps chromium && npm test
 
 e2e-headed:
+	$(MAKE) mcp-client CLIENT_ID=taskflow-mcp-e2e REDIRECT_URIS=http://127.0.0.1:1457/callback
 	cd e2e && npm ci && npx playwright install chromium && npm run test:headed
 
 # Brings up the full stack (built fresh, waiting for healthchecks) and then
 # runs the Playwright suite headless against it, in one command.
 e2e-full:
 	docker compose up -d --build --wait
+	$(MAKE) mcp-client CLIENT_ID=taskflow-mcp-e2e REDIRECT_URIS=http://127.0.0.1:1457/callback
 	cd e2e && npm ci && npx playwright install --with-deps chromium && npm test
 
 # Generate the Swagger document served by Swagger UI from Go annotations. The
