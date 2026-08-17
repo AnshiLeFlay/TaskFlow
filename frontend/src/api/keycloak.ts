@@ -14,7 +14,6 @@ export function initKeycloak(): Promise<boolean> {
       onLoad: 'check-sso',
       pkceMethod: 'S256',
       checkLoginIframe: false,
-      silentCheckSsoRedirectUri: `${window.location.origin}/silent-check-sso.html`,
     }).catch((error) => {
       initialized = undefined
       throw error
