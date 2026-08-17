@@ -31,7 +31,7 @@ services:
       KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-taskflow}
       KC_HEALTH_ENABLED: "true"
       KC_HTTP_ENABLED: "true"
-      KC_HOSTNAME: http://localhost:8082
+      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8082}
       KC_HOSTNAME_STRICT: "false"
       MCP_AUDIENCE: ${MCP_AUDIENCE:-http://localhost:8080/mcp}
     ports:
@@ -71,6 +71,7 @@ services:
       MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:-http://localhost:8080/mcp}
       MCP_AUDIENCE: ${MCP_AUDIENCE:-http://localhost:8080/mcp}
       MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS-http://localhost:8081,http://localhost:5173}
+      MCP_INSECURE_HTTP_HOSTS: ${MCP_INSECURE_HTTP_HOSTS:-}
       KEYCLOAK_ADMIN_URL: ${KEYCLOAK_ADMIN_URL:-http://keycloak:8080}
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-taskflow}
       KEYCLOAK_DIRECTORY_CLIENT_ID: ${KEYCLOAK_DIRECTORY_CLIENT_ID:-taskflow-backend}

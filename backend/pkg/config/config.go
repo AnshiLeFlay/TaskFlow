@@ -29,6 +29,7 @@ type Config struct {
 	MCPPublicURL            string
 	MCPAudience             string
 	MCPAllowedOrigins       []string
+	MCPInsecureHTTPHosts    []string
 	ShutdownTimeout         time.Duration
 	LogLevel                slog.Level
 }
@@ -67,6 +68,7 @@ func Load() (Config, error) {
 		MCPPublicURL:            mcpPublicURL,
 		MCPAudience:             env("MCP_AUDIENCE", mcpPublicURL),
 		MCPAllowedOrigins:       envCSV("MCP_ALLOWED_ORIGINS", corsOrigins),
+		MCPInsecureHTTPHosts:    envCSV("MCP_INSECURE_HTTP_HOSTS", ""),
 		ShutdownTimeout:         envDuration("SHUTDOWN_TIMEOUT", 10*time.Second),
 		LogLevel:                logLevel,
 	}
@@ -74,7 +76,7 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("DATABASE_URL is required")
 	}
 	if cfg.MCPEnabled {
-		if err := validateMCPPublicURL(cfg.MCPPublicURL); err != nil {
+		if err := validateMCPPublicURL(cfg.MCPPublicURL, cfg.MCPInsecureHTTPHosts); err != nil {
 			return Config{}, err
 		}
 		if strings.TrimSpace(cfg.MCPAudience) == "" {
@@ -87,7 +89,7 @@ func Load() (Config, error) {
 	return cfg, nil
 }
 
-func validateMCPPublicURL(rawURL string) error {
+func validateMCPPublicURL(rawURL string, insecureHTTPHosts []string) error {
 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return fmt.Errorf("MCP_PUBLIC_URL must be an absolute HTTP(S) URL")
@@ -104,13 +106,22 @@ func validateMCPPublicURL(rawURL string) error {
 	case "http":
 		host := parsed.Hostname()
 		ip := net.ParseIP(host)
-		if strings.EqualFold(host, "localhost") || (ip != nil && ip.IsLoopback()) {
+		if strings.EqualFold(host, "localhost") || (ip != nil && ip.IsLoopback()) || hostAllowed(host, insecureHTTPHosts) {
 			return nil
 		}
-		return fmt.Errorf("MCP_PUBLIC_URL must use HTTPS unless its host is localhost or a loopback address")
+		return fmt.Errorf("MCP_PUBLIC_URL must use HTTPS unless its host is localhost, a loopback address, or explicitly listed in MCP_INSECURE_HTTP_HOSTS")
 	default:
 		return fmt.Errorf("MCP_PUBLIC_URL must use HTTP or HTTPS")
 	}
+}
+
+func hostAllowed(host string, allowed []string) bool {
+	for _, candidate := range allowed {
+		if strings.EqualFold(strings.TrimSpace(candidate), host) {
+			return true
+		}
+	}
+	return false
 }
 
 func env(name, fallback string) string {

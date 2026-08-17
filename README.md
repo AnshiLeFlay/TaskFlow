@@ -46,6 +46,12 @@ docker compose up --build
 Wait until `docker compose ps` reports all services healthy, then open the UI
 at <http://localhost:8081>.
 
+For an MCP agent running in another Docker Desktop container, use
+`make up-docker-agent`. That development profile publishes MCP and Keycloak
+discovery through `host.docker.internal` while the standard quick start keeps
+the localhost defaults. See [docs/README.md](docs/README.md#mcp-client-in-another-docker-container)
+for the Hermes client ID, PKCE callback, and exact MCP configuration.
+
 ## Tests
 
 ```sh

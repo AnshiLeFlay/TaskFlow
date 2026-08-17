@@ -52,6 +52,43 @@ func TestProtectedResourceMetadata(t *testing.T) {
 	assert.Equal(t, []string{"header"}, metadata.BearerMethodsSupported)
 }
 
+func TestProtectedResourceMetadataSupportsExplicitDockerDevelopmentHost(t *testing.T) {
+	httpAuth, err := NewHTTPAuth(testTokenValidator(func(context.Context, string) (domain.User, error) {
+		return domain.User{}, nil
+	}), HTTPAuthOptions{
+		PublicURL:           "http://host.docker.internal:8080/mcp",
+		AuthorizationServer: "http://host.docker.internal:8082/realms/taskflow",
+		InsecureHTTPHosts:   []string{"host.docker.internal"},
+	})
+	require.NoError(t, err)
+
+	metadataResponse := httptest.NewRecorder()
+	httpAuth.MetadataHandler().ServeHTTP(metadataResponse, httptest.NewRequest(http.MethodGet, "/.well-known/oauth-protected-resource/mcp", nil))
+	require.Equal(t, http.StatusOK, metadataResponse.Code)
+	var metadata ProtectedResourceMetadata
+	require.NoError(t, json.Unmarshal(metadataResponse.Body.Bytes(), &metadata))
+	assert.Equal(t, "http://host.docker.internal:8080/mcp", metadata.Resource)
+	assert.Equal(t, []string{"http://host.docker.internal:8082/realms/taskflow"}, metadata.AuthorizationServers)
+
+	unauthorized := httptest.NewRecorder()
+	httpAuth.Protect(nil).ServeHTTP(unauthorized, httptest.NewRequest(http.MethodPost, "/mcp", nil))
+	require.Equal(t, http.StatusUnauthorized, unauthorized.Code)
+	assert.Contains(t, unauthorized.Header().Get("WWW-Authenticate"), `resource_metadata="http://host.docker.internal:8080/.well-known/oauth-protected-resource/mcp"`)
+	assert.Contains(t, unauthorized.Header().Get("WWW-Authenticate"), `scope="taskflow:mcp"`)
+}
+
+func TestExplicitInsecureDevelopmentHostDoesNotAllowAnotherHost(t *testing.T) {
+	validator := testTokenValidator(func(context.Context, string) (domain.User, error) {
+		return domain.User{}, nil
+	})
+	_, err := NewHTTPAuth(validator, HTTPAuthOptions{
+		PublicURL:           "http://other.internal:8080/mcp",
+		AuthorizationServer: "http://host.docker.internal:8082/realms/taskflow",
+		InsecureHTTPHosts:   []string{"host.docker.internal"},
+	})
+	require.Error(t, err)
+}
+
 func TestProtectedResourceMetadataSupportsHeadAndRejectsMutation(t *testing.T) {
 	httpAuth := newTestHTTPAuth(t, func(context.Context, string) (domain.User, error) {
 		return domain.User{}, nil

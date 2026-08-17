@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
+import { execFileSync } from 'node:child_process'
 import { expect, test, type APIRequestContext } from '@playwright/test'
 
 const issuer = process.env.MCP_E2E_ISSUER || 'http://localhost:8082/realms/taskflow'
@@ -67,12 +68,47 @@ test('OAuth Code + PKCE controls a complete MCP task workflow', async ({ page, r
   const { access_token: accessToken } = await tokenResponse.json() as { access_token: string }
   const claims = JSON.parse(Buffer.from(accessToken.split('.')[1], 'base64url').toString('utf8')) as {
     aud: string | string[]
+    iss: string
     scope: string
     sub: string
   }
+  expect(claims.iss).toBe(issuer)
   expect(Array.isArray(claims.aud) ? claims.aud : [claims.aud]).toContain(mcpURL)
   expect(claims.scope.split(' ')).toContain('taskflow:mcp')
   expect(claims.sub).toBe('11111111-1111-4111-8111-111111111111')
+
+  const clientContainer = process.env.MCP_E2E_CLIENT_CONTAINER
+  if (clientContainer) {
+    const probe = {
+      url: mcpURL,
+      token: accessToken,
+      payload: {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-11-25',
+          capabilities: {},
+          clientInfo: { name: 'taskflow-container-smoke', version: '1.0.0' },
+        },
+      },
+    }
+    const python = [
+      'import json,sys,urllib.request',
+      'probe=json.load(sys.stdin)',
+      'body=json.dumps(probe["payload"]).encode()',
+      'headers={"Authorization":"Bearer "+probe["token"],"Accept":"application/json, text/event-stream","Content-Type":"application/json","MCP-Protocol-Version":"2025-11-25"}',
+      'request=urllib.request.Request(probe["url"],data=body,headers=headers,method="POST")',
+      'print(urllib.request.urlopen(request,timeout=10).read().decode())',
+    ].join(';')
+    const raw = execFileSync('docker', ['exec', '-i', clientContainer, 'python', '-c', python], {
+      input: JSON.stringify(probe),
+      encoding: 'utf8',
+    })
+    const containerResponse = JSON.parse(raw) as JSONRPCResponse
+    expect(containerResponse.error).toBeUndefined()
+    expect(containerResponse.result?.protocolVersion).toBe('2025-11-25')
+  }
 
   let requestID = 0
   const rpc = async (method: string, params: Record<string, unknown>) => {

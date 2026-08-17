@@ -99,6 +99,59 @@ localhost loopback callbacks are accepted. Configure the MCP client with URL
 `http://localhost:8080/mcp`, the registered client ID, and requested scope
 `taskflow:mcp`.
 
+### MCP client in another Docker container
+
+`localhost` inside a client container is that container, not the Windows host.
+For Docker Desktop agents, start TaskFlow with the checked-in, secret-free
+Docker-agent development profile:
+
+```sh
+docker compose --env-file .env.docker-agent.example up --build -d
+# Equivalent convenience target:
+make up-docker-agent
+```
+
+This profile uses `host.docker.internal` as the single canonical hostname for
+both browser-facing Keycloak and MCP discovery. Register Hermes after the stack
+is healthy:
+
+```sh
+make mcp-client \
+  CLIENT_ID=hermes-taskflow \
+  REDIRECT_URIS=http://localhost:8642/api/mcp/oauth/callback/taskflow
+```
+
+The callback above is handled by the Hermes dashboard published on Windows
+port `8642`; `taskflow` is the MCP server key in Hermes configuration. Start
+the login from that dashboard so it can bridge the browser callback back into
+the container.
+
+```yaml
+mcp_servers:
+  taskflow:
+    url: "http://host.docker.internal:8080/mcp"
+    auth: oauth
+    oauth:
+      client_id: "hermes-taskflow"
+      scope: "taskflow:mcp"
+      redirect_uri: "http://localhost:8642/api/mcp/oauth/callback/taskflow"
+```
+
+The protected resource URL is `http://host.docker.internal:8080/mcp`; the
+issuer is `http://host.docker.internal:8082/realms/taskflow`. Both URLs must be
+used exactly: the resource URL is also the access-token audience, and the
+issuer must match Keycloak discovery and the token `iss` claim. The backend
+still fetches signing keys over the isolated Compose network through
+`http://keycloak:8080`, deliberately separate from the canonical issuer.
+
+`MCP_INSECURE_HTTP_HOSTS=host.docker.internal` is a narrow development-only
+exception. It permits plaintext only for that exact hostname. Never put a
+shared or production hostname there; use a trusted HTTPS endpoint instead.
+The regular `docker compose up --build` flow keeps the original localhost
+defaults. When the Docker-agent profile is active, host-side MCP clients should
+also use `http://host.docker.internal:8080/mcp` so all clients agree on one
+resource identifier.
+
 The access token identifies the interactive Keycloak user. The agent therefore
 has exactly that user's project permissions; viewer/member/admin restrictions
 and workflow conditions are not bypassed. Registering an OAuth client does not
@@ -106,8 +159,9 @@ grant project membership.
 
 For non-local deployment, set `MCP_PUBLIC_URL` and `MCP_AUDIENCE` to the same
 public HTTPS URL and restrict `MCP_ALLOWED_ORIGINS`. Plain HTTP is accepted only
-for localhost and loopback addresses. Set `MCP_ALLOWED_ORIGINS` to an empty
-value when only native (non-browser) MCP clients should be accepted.
+for localhost, loopback addresses, or exact development hosts explicitly named
+in `MCP_INSECURE_HTTP_HOSTS`. Set `MCP_ALLOWED_ORIGINS` to an empty value when
+only native (non-browser) MCP clients should be accepted.
 
 The server exposes explicit tools for users, projects, membership, boards,
 statuses, workflow rules, tasks, assignments, comments and transitions. It
@@ -173,6 +227,22 @@ e2e suite uses the imported Keycloak users and creates unique project names, so
 parallel/repeated runs do not depend on a clean application database.
 Integration tests are guarded by the `integration` build tag and use
 `TEST_DATABASE_URL` when it is set.
+
+With the Docker-agent profile active, the MCP test can additionally execute an
+authenticated `initialize` request from a running client container. On
+PowerShell:
+
+```powershell
+$env:MCP_E2E_ISSUER = 'http://host.docker.internal:8082/realms/taskflow'
+$env:MCP_E2E_URL = 'http://host.docker.internal:8080/mcp'
+$env:MCP_E2E_CLIENT_CONTAINER = 'platform-hermes-1'
+cd e2e
+.\node_modules\.bin\playwright.cmd test specs/mcp.spec.ts
+```
+
+The test completes Authorization Code + PKCE in Chromium, verifies the token
+issuer/audience/scope, then passes that token over stdin to a `docker exec`
+probe. The token is neither committed nor printed.
 
 For a fast local loop without Compose, run PostgreSQL and Keycloak from Compose,
 then start `backend` and `frontend` with the variables from `.env.example`. Keep

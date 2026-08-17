@@ -94,6 +94,7 @@ func TestLoadMCPDefaultsToDisabledWithSeparateSettings(t *testing.T) {
 	unsetEnvironment(t, "MCP_PUBLIC_URL")
 	unsetEnvironment(t, "MCP_AUDIENCE")
 	unsetEnvironment(t, "MCP_ALLOWED_ORIGINS")
+	unsetEnvironment(t, "MCP_INSECURE_HTTP_HOSTS")
 	unsetEnvironment(t, "CORS_ALLOWED_ORIGINS")
 
 	cfg, err := Load()
@@ -102,6 +103,7 @@ func TestLoadMCPDefaultsToDisabledWithSeparateSettings(t *testing.T) {
 	assert.Equal(t, "http://localhost:8080/mcp", cfg.MCPPublicURL)
 	assert.Equal(t, cfg.MCPPublicURL, cfg.MCPAudience)
 	assert.Equal(t, []string{"http://localhost:5173", "http://localhost:8081"}, cfg.MCPAllowedOrigins)
+	assert.Empty(t, cfg.MCPInsecureHTTPHosts)
 }
 
 func TestLoadMCPAcceptsHTTPSAndExplicitAudience(t *testing.T) {
@@ -159,6 +161,30 @@ func TestLoadMCPRejectsInsecureNonLocalPublicURL(t *testing.T) {
 	setRequiredTestEnvironment(t)
 	t.Setenv("MCP_ENABLED", "true")
 	t.Setenv("MCP_PUBLIC_URL", "http://taskflow.example.com/mcp")
+
+	_, err := Load()
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "must use HTTPS")
+}
+
+func TestLoadMCPAllowsExplicitInsecureDevelopmentHost(t *testing.T) {
+	setRequiredTestEnvironment(t)
+	t.Setenv("MCP_ENABLED", "true")
+	t.Setenv("MCP_PUBLIC_URL", "http://host.docker.internal:8080/mcp")
+	t.Setenv("MCP_AUDIENCE", "http://host.docker.internal:8080/mcp")
+	t.Setenv("MCP_INSECURE_HTTP_HOSTS", "host.docker.internal")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"host.docker.internal"}, cfg.MCPInsecureHTTPHosts)
+}
+
+func TestLoadMCPInsecureDevelopmentHostAllowlistIsExact(t *testing.T) {
+	setRequiredTestEnvironment(t)
+	t.Setenv("MCP_ENABLED", "true")
+	t.Setenv("MCP_PUBLIC_URL", "http://other.internal:8080/mcp")
+	t.Setenv("MCP_AUDIENCE", "http://other.internal:8080/mcp")
+	t.Setenv("MCP_INSECURE_HTTP_HOSTS", "host.docker.internal")
 
 	_, err := Load()
 	require.Error(t, err)

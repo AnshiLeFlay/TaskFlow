@@ -93,6 +93,7 @@ func run(logger *slog.Logger, cfg config.Config) error {
 			PublicURL:           cfg.MCPPublicURL,
 			AuthorizationServer: cfg.KeycloakIssuerURL,
 			AllowedOrigins:      cfg.MCPAllowedOrigins,
+			InsecureHTTPHosts:   cfg.MCPInsecureHTTPHosts,
 		})
 		if err != nil {
 			return fmt.Errorf("configure MCP HTTP authorization: %w", err)

@@ -1,7 +1,7 @@
-.PHONY: help env up down logs build mcp-client fmt vet test test-backend test-backend-docker test-integration test-frontend test-all e2e e2e-headed e2e-full swagger swagger-check proto clean
+.PHONY: help env up up-docker-agent down logs build mcp-client fmt vet test test-backend test-backend-docker test-integration test-frontend test-all e2e e2e-headed e2e-full swagger swagger-check proto clean
 
 help:
-	@echo "TaskFlow targets: env, up, down, logs, build, mcp-client, fmt, vet, test, test-backend, test-backend-docker, test-integration, test-frontend, test-all, e2e, e2e-headed, e2e-full, swagger, swagger-check, proto"
+	@echo "TaskFlow targets: env, up, up-docker-agent, down, logs, build, mcp-client, fmt, vet, test, test-backend, test-backend-docker, test-integration, test-frontend, test-all, e2e, e2e-headed, e2e-full, swagger, swagger-check, proto"
 	@echo "  test        - backend (local go) + frontend tests; requires a local Go toolchain"
 	@echo "  test-all    - backend (dockerized) + frontend + integration tests; no local Go required"
 
@@ -10,6 +10,12 @@ env:
 
 up:
 	docker compose up --build -d
+
+# Use one canonical hostname that is reachable by Windows and Docker Desktop
+# containers. Override DOCKER_AGENT_ENV to keep local values in an untracked file.
+DOCKER_AGENT_ENV ?= .env.docker-agent.example
+up-docker-agent:
+	docker compose --env-file "$(DOCKER_AGENT_ENV)" up --build -d
 
 down:
 	docker compose down

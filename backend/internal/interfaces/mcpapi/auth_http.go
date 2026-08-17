@@ -36,6 +36,7 @@ type HTTPAuthOptions struct {
 	PublicURL           string
 	AuthorizationServer string
 	AllowedOrigins      []string
+	InsecureHTTPHosts   []string
 	Scope               string
 }
 
@@ -62,11 +63,11 @@ func NewHTTPAuth(validator application.TokenValidator, options HTTPAuthOptions) 
 	if validator == nil {
 		return nil, errors.New("MCP token validator is required")
 	}
-	resource, metadataURL, err := validateResourceURL(options.PublicURL)
+	resource, metadataURL, err := validateResourceURL(options.PublicURL, options.InsecureHTTPHosts)
 	if err != nil {
 		return nil, err
 	}
-	authorizationServer, err := validateAuthorizationServer(options.AuthorizationServer)
+	authorizationServer, err := validateAuthorizationServer(options.AuthorizationServer, options.InsecureHTTPHosts)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +186,7 @@ func writeOAuthError(w http.ResponseWriter, status int, code string) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": code})
 }
 
-func validateResourceURL(raw string) (string, string, error) {
+func validateResourceURL(raw string, insecureHTTPHosts []string) (string, string, error) {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return "", "", errors.New("MCP public URL must be an absolute URL")
@@ -200,7 +201,7 @@ func validateResourceURL(raw string) (string, string, error) {
 	if parsed.Scheme == "http" {
 		host := parsed.Hostname()
 		ip := net.ParseIP(host)
-		if !strings.EqualFold(host, "localhost") && (ip == nil || !ip.IsLoopback()) {
+		if !strings.EqualFold(host, "localhost") && (ip == nil || !ip.IsLoopback()) && !httpHostAllowed(host, insecureHTTPHosts) {
 			return "", "", errors.New("MCP public URL must use HTTPS unless its host is localhost or a loopback address")
 		}
 	}
@@ -213,7 +214,7 @@ func validateResourceURL(raw string) (string, string, error) {
 	return resource, parsed.String(), nil
 }
 
-func validateAuthorizationServer(raw string) (string, error) {
+func validateAuthorizationServer(raw string, insecureHTTPHosts []string) (string, error) {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return "", errors.New("MCP authorization server must be an absolute URL")
@@ -228,11 +229,20 @@ func validateAuthorizationServer(raw string) (string, error) {
 	if parsed.Scheme == "http" {
 		host := parsed.Hostname()
 		ip := net.ParseIP(host)
-		if !strings.EqualFold(host, "localhost") && (ip == nil || !ip.IsLoopback()) {
+		if !strings.EqualFold(host, "localhost") && (ip == nil || !ip.IsLoopback()) && !httpHostAllowed(host, insecureHTTPHosts) {
 			return "", errors.New("MCP authorization server must use HTTPS unless its host is localhost or a loopback address")
 		}
 	}
 	return strings.TrimRight(parsed.String(), "/"), nil
+}
+
+func httpHostAllowed(host string, allowed []string) bool {
+	for _, candidate := range allowed {
+		if strings.EqualFold(strings.TrimSpace(candidate), host) {
+			return true
+		}
+	}
+	return false
 }
 
 func validateOrigins(values []string) (map[string]struct{}, error) {
