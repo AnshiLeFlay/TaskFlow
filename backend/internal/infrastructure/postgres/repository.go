@@ -67,6 +67,27 @@ func (r *Repository) ListProjects(ctx context.Context, userID string) ([]domain.
 	return projects, mapError(rows.Err())
 }
 
+// ListAllProjects backs superadmin access. There is no project_members join,
+// so the role column cannot come from the database; superadmins act as project
+// admins by definition, which is what domain.RoleAdmin records here.
+func (r *Repository) ListAllProjects(ctx context.Context) ([]domain.Project, error) {
+	rows, err := r.pool.Query(ctx, `SELECT p.id,p.name,p.description,p.owner_id,p.created_at,p.updated_at FROM projects p ORDER BY p.created_at DESC`)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+	projects := make([]domain.Project, 0)
+	for rows.Next() {
+		var p domain.Project
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.OwnerID, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, mapError(err)
+		}
+		p.Role = domain.RoleAdmin
+		projects = append(projects, p)
+	}
+	return projects, mapError(rows.Err())
+}
+
 func (r *Repository) GetProject(ctx context.Context, id string) (domain.Project, error) {
 	var p domain.Project
 	err := r.pool.QueryRow(ctx, `SELECT id,name,description,owner_id,created_at,updated_at FROM projects WHERE id=$1`, id).Scan(&p.ID, &p.Name, &p.Description, &p.OwnerID, &p.CreatedAt, &p.UpdatedAt)

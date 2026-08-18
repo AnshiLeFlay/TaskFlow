@@ -62,7 +62,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	projectID := strings.TrimSpace(r.URL.Query().Get("project_id"))
 	var projectIDs []string
 	if projectID != "" {
-		if err := h.service.AuthorizeProject(r.Context(), user.ID, projectID); err != nil {
+		if err := h.service.AuthorizeProject(r.Context(), user, projectID); err != nil {
 			if errors.Is(err, domain.ErrForbidden) || errors.Is(err, domain.ErrNotFound) {
 				writeWSError(w, http.StatusForbidden, "forbidden", "project membership is required")
 				return
@@ -73,7 +73,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		projectIDs = []string{projectID}
 	} else {
-		projectIDs, err = h.service.ProjectIDs(r.Context(), user.ID)
+		projectIDs, err = h.service.ProjectIDs(r.Context(), user)
 		if err != nil {
 			h.logger.Error("list WebSocket projects", "error", err, "user_id", user.ID)
 			writeWSError(w, http.StatusInternalServerError, "internal_error", "could not prepare subscription")
@@ -126,7 +126,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if projectID != "" && event.ProjectID != projectID {
 				continue
 			}
-			if err := h.service.AuthorizeProject(r.Context(), user.ID, event.ProjectID); err != nil {
+			if err := h.service.AuthorizeProject(r.Context(), user, event.ProjectID); err != nil {
 				if errors.Is(err, domain.ErrForbidden) || errors.Is(err, domain.ErrNotFound) {
 					if projectID != "" {
 						return

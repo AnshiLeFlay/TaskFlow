@@ -19,6 +19,17 @@ func (r ProjectRole) Valid() bool {
 	}
 }
 
+// RealmRoleSuperadmin is the Keycloak realm role that grants unrestricted
+// access to every project. It is the one authorization input that does not
+// come from project_members: it is read from the access token, so revoking it
+// in Keycloak revokes the access on the next token, with no data to clean up.
+//
+// It deliberately does not bypass workflow transition rules. Those encode the
+// project's own process (author only, assignee only, owner only, requires a
+// comment), not who may reach the project, and a superadmin still has to obey
+// them.
+const RealmRoleSuperadmin = "superadmin"
+
 func (r ProjectRole) CanManageWorkflow() bool { return r == RoleAdmin }
 func (r ProjectRole) CanManageMembers() bool  { return r == RoleAdmin }
 func (r ProjectRole) CanManageTasks() bool {
@@ -113,4 +124,14 @@ type User struct {
 	Email    string   `json:"email"`
 	Name     string   `json:"name,omitempty"`
 	Roles    []string `json:"roles"`
+}
+
+// IsSuperadmin reports whether the access token carries RealmRoleSuperadmin.
+func (u User) IsSuperadmin() bool {
+	for _, role := range u.Roles {
+		if role == RealmRoleSuperadmin {
+			return true
+		}
+	}
+	return false
 }

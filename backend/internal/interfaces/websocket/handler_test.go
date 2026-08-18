@@ -53,6 +53,20 @@ func (r *membershipRepository) ListProjects(_ context.Context, userID string) ([
 	}
 	return projects, nil
 }
+func (r *membershipRepository) ListAllProjects(_ context.Context) ([]domain.Project, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	seen := make(map[string]struct{}, len(r.memberships))
+	projects := make([]domain.Project, 0, len(r.memberships))
+	for _, membership := range r.memberships {
+		if _, ok := seen[membership.ProjectID]; ok {
+			continue
+		}
+		seen[membership.ProjectID] = struct{}{}
+		projects = append(projects, domain.Project{ID: membership.ProjectID, Role: domain.RoleAdmin})
+	}
+	return projects, nil
+}
 
 func (r *membershipRepository) GetMembership(_ context.Context, projectID, userID string) (domain.Member, error) {
 	r.mu.Lock()

@@ -71,6 +71,14 @@ func (f *endpointFakeRepository) ListProjects(_ context.Context, userID string) 
 	}
 	return out, nil
 }
+func (f *endpointFakeRepository) ListAllProjects(_ context.Context) ([]domain.Project, error) {
+	var result []domain.Project
+	for _, p := range f.projects {
+		p.Role = domain.RoleAdmin
+		result = append(result, p)
+	}
+	return result, nil
+}
 
 func (f *endpointFakeRepository) GetProject(_ context.Context, id string) (domain.Project, error) {
 	p, ok := f.projects[id]

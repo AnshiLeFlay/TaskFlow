@@ -46,7 +46,7 @@ func (s *Server) Subscribe(request *taskflowv1.SubscribeRequest, stream taskflow
 	if err != nil {
 		return status.Error(codes.Unauthenticated, "invalid bearer token")
 	}
-	if err := s.service.AuthorizeProject(stream.Context(), user.ID, request.GetProjectId()); err != nil {
+	if err := s.service.AuthorizeProject(stream.Context(), user, request.GetProjectId()); err != nil {
 		if errors.Is(err, domain.ErrForbidden) || errors.Is(err, domain.ErrNotFound) {
 			return status.Error(codes.PermissionDenied, "project membership is required")
 		}
@@ -65,7 +65,7 @@ func (s *Server) Subscribe(request *taskflowv1.SubscribeRequest, stream taskflow
 			if event.ProjectID != request.GetProjectId() {
 				continue
 			}
-			if err := s.service.AuthorizeProject(stream.Context(), user.ID, event.ProjectID); err != nil {
+			if err := s.service.AuthorizeProject(stream.Context(), user, event.ProjectID); err != nil {
 				if errors.Is(err, domain.ErrForbidden) || errors.Is(err, domain.ErrNotFound) {
 					return status.Error(codes.PermissionDenied, "project membership is required")
 				}

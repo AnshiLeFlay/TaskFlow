@@ -75,6 +75,9 @@ func (s *Service) CreateProject(ctx context.Context, actor domain.User, cmd Crea
 }
 
 func (s *Service) ListProjects(ctx context.Context, actor domain.User) ([]domain.Project, error) {
+	if actor.IsSuperadmin() {
+		return s.repo.ListAllProjects(ctx)
+	}
 	return s.repo.ListProjects(ctx, actor.ID)
 }
 
@@ -84,7 +87,7 @@ type AddMemberCommand struct {
 }
 
 func (s *Service) AddMember(ctx context.Context, actor domain.User, projectID string, cmd AddMemberCommand) (domain.Member, error) {
-	if _, err := s.requireRole(ctx, projectID, actor.ID, func(r domain.ProjectRole) bool { return r.CanManageMembers() }); err != nil {
+	if _, err := s.requireRole(ctx, projectID, actor, func(r domain.ProjectRole) bool { return r.CanManageMembers() }); err != nil {
 		return domain.Member{}, err
 	}
 	if strings.TrimSpace(cmd.UserID) == "" {
@@ -130,7 +133,7 @@ func (s *Service) ListMembers(ctx context.Context, actor domain.User, projectID 
 	if _, err := s.repo.GetProject(ctx, projectID); err != nil {
 		return nil, err
 	}
-	if _, err := s.requireMember(ctx, projectID, actor.ID); err != nil {
+	if _, err := s.requireMember(ctx, projectID, actor); err != nil {
 		return nil, err
 	}
 	return s.repo.ListMembers(ctx, projectID)
@@ -148,7 +151,7 @@ type CreateBoardCommand struct {
 }
 
 func (s *Service) CreateBoard(ctx context.Context, actor domain.User, projectID string, cmd CreateBoardCommand) (domain.BoardAggregate, error) {
-	if _, err := s.requireRole(ctx, projectID, actor.ID, func(r domain.ProjectRole) bool { return r.CanManageWorkflow() }); err != nil {
+	if _, err := s.requireRole(ctx, projectID, actor, func(r domain.ProjectRole) bool { return r.CanManageWorkflow() }); err != nil {
 		return domain.BoardAggregate{}, err
 	}
 	name := strings.TrimSpace(cmd.Name)
@@ -195,14 +198,14 @@ func (s *Service) CreateBoard(ctx context.Context, actor domain.User, projectID 
 }
 
 func (s *Service) ListBoards(ctx context.Context, actor domain.User, projectID string) ([]domain.Board, error) {
-	if _, err := s.requireMember(ctx, projectID, actor.ID); err != nil {
+	if _, err := s.requireMember(ctx, projectID, actor); err != nil {
 		return nil, err
 	}
 	return s.repo.ListBoards(ctx, projectID)
 }
 
 func (s *Service) GetBoard(ctx context.Context, actor domain.User, boardID string) (domain.BoardAggregate, error) {
-	b, _, err := s.authorizeBoard(ctx, actor.ID, boardID, nil)
+	b, _, err := s.authorizeBoard(ctx, actor, boardID, nil)
 	if err != nil {
 		return domain.BoardAggregate{}, err
 	}
@@ -215,7 +218,7 @@ type CreateStatusCommand struct {
 }
 
 func (s *Service) CreateStatus(ctx context.Context, actor domain.User, boardID string, cmd CreateStatusCommand) (domain.Status, error) {
-	b, _, err := s.authorizeBoard(ctx, actor.ID, boardID, func(r domain.ProjectRole) bool { return r.CanManageWorkflow() })
+	b, _, err := s.authorizeBoard(ctx, actor, boardID, func(r domain.ProjectRole) bool { return r.CanManageWorkflow() })
 	if err != nil {
 		return domain.Status{}, err
 	}
@@ -253,7 +256,7 @@ func (s *Service) UpdateStatus(ctx context.Context, actor domain.User, statusID 
 	if err != nil {
 		return domain.Status{}, err
 	}
-	if _, _, err := s.authorizeBoard(ctx, actor.ID, status.BoardID, func(r domain.ProjectRole) bool { return r.CanManageWorkflow() }); err != nil {
+	if _, _, err := s.authorizeBoard(ctx, actor, status.BoardID, func(r domain.ProjectRole) bool { return r.CanManageWorkflow() }); err != nil {
 		return domain.Status{}, err
 	}
 	if cmd.Name != nil {
@@ -286,7 +289,7 @@ func (s *Service) DeleteStatus(ctx context.Context, actor domain.User, statusID 
 	if err != nil {
 		return err
 	}
-	if _, _, err := s.authorizeBoard(ctx, actor.ID, status.BoardID, func(r domain.ProjectRole) bool { return r.CanManageWorkflow() }); err != nil {
+	if _, _, err := s.authorizeBoard(ctx, actor, status.BoardID, func(r domain.ProjectRole) bool { return r.CanManageWorkflow() }); err != nil {
 		return err
 	}
 	return s.repo.DeleteStatus(ctx, statusID)
@@ -299,7 +302,7 @@ type CreateRuleCommand struct {
 }
 
 func (s *Service) CreateRule(ctx context.Context, actor domain.User, boardID string, cmd CreateRuleCommand) (domain.TransitionRule, error) {
-	b, _, err := s.authorizeBoard(ctx, actor.ID, boardID, func(r domain.ProjectRole) bool { return r.CanManageWorkflow() })
+	b, _, err := s.authorizeBoard(ctx, actor, boardID, func(r domain.ProjectRole) bool { return r.CanManageWorkflow() })
 	if err != nil {
 		return domain.TransitionRule{}, err
 	}
@@ -328,7 +331,7 @@ func (s *Service) UpdateRule(ctx context.Context, actor domain.User, ruleID stri
 	if err != nil {
 		return domain.TransitionRule{}, err
 	}
-	if _, _, err := s.authorizeBoard(ctx, actor.ID, rule.BoardID, func(r domain.ProjectRole) bool { return r.CanManageWorkflow() }); err != nil {
+	if _, _, err := s.authorizeBoard(ctx, actor, rule.BoardID, func(r domain.ProjectRole) bool { return r.CanManageWorkflow() }); err != nil {
 		return domain.TransitionRule{}, err
 	}
 	if cmd.FromStatusID != nil {
@@ -355,14 +358,14 @@ func (s *Service) DeleteRule(ctx context.Context, actor domain.User, ruleID stri
 	if err != nil {
 		return err
 	}
-	if _, _, err := s.authorizeBoard(ctx, actor.ID, rule.BoardID, func(r domain.ProjectRole) bool { return r.CanManageWorkflow() }); err != nil {
+	if _, _, err := s.authorizeBoard(ctx, actor, rule.BoardID, func(r domain.ProjectRole) bool { return r.CanManageWorkflow() }); err != nil {
 		return err
 	}
 	return s.repo.DeleteRule(ctx, ruleID)
 }
 
 func (s *Service) ListTasks(ctx context.Context, actor domain.User, boardID string) ([]domain.Task, error) {
-	if _, _, err := s.authorizeBoard(ctx, actor.ID, boardID, nil); err != nil {
+	if _, _, err := s.authorizeBoard(ctx, actor, boardID, nil); err != nil {
 		return nil, err
 	}
 	return s.repo.ListTasks(ctx, boardID)
@@ -377,7 +380,7 @@ type CreateTaskCommand struct {
 }
 
 func (s *Service) CreateTask(ctx context.Context, actor domain.User, boardID string, cmd CreateTaskCommand) (domain.Task, error) {
-	b, _, err := s.authorizeBoard(ctx, actor.ID, boardID, func(r domain.ProjectRole) bool { return r.CanManageTasks() })
+	b, _, err := s.authorizeBoard(ctx, actor, boardID, func(r domain.ProjectRole) bool { return r.CanManageTasks() })
 	if err != nil {
 		return domain.Task{}, err
 	}
@@ -435,7 +438,7 @@ func (s *Service) UpdateTask(ctx context.Context, actor domain.User, taskID stri
 	if cmd.Title == nil && cmd.Description == nil && !cmd.SetAssignee && !cmd.SetDeadline {
 		return domain.Task{}, &domain.ValidationError{Message: "at least one task field is required"}
 	}
-	task, b, _, err := s.authorizeTask(ctx, actor.ID, taskID, func(r domain.ProjectRole) bool { return r.CanManageTasks() })
+	task, b, _, err := s.authorizeTask(ctx, actor, taskID, func(r domain.ProjectRole) bool { return r.CanManageTasks() })
 	if err != nil {
 		return domain.Task{}, err
 	}
@@ -472,7 +475,7 @@ func (s *Service) UpdateTask(ctx context.Context, actor domain.User, taskID stri
 }
 
 func (s *Service) CreateComment(ctx context.Context, actor domain.User, taskID, body string) (domain.Comment, error) {
-	task, b, _, err := s.authorizeTask(ctx, actor.ID, taskID, func(r domain.ProjectRole) bool { return r.CanManageTasks() })
+	task, b, _, err := s.authorizeTask(ctx, actor, taskID, func(r domain.ProjectRole) bool { return r.CanManageTasks() })
 	if err != nil {
 		return domain.Comment{}, err
 	}
@@ -492,7 +495,7 @@ func (s *Service) CreateComment(ctx context.Context, actor domain.User, taskID, 
 }
 
 func (s *Service) TransitionTask(ctx context.Context, actor domain.User, taskID, targetStatusID string) (domain.Task, error) {
-	task, b, role, err := s.authorizeTask(ctx, actor.ID, taskID, func(r domain.ProjectRole) bool { return r.CanManageTasks() })
+	task, b, role, err := s.authorizeTask(ctx, actor, taskID, func(r domain.ProjectRole) bool { return r.CanManageTasks() })
 	if err != nil {
 		return domain.Task{}, err
 	}
@@ -530,13 +533,16 @@ func (s *Service) TransitionTask(ctx context.Context, actor domain.User, taskID,
 	return updated, nil
 }
 
-func (s *Service) AuthorizeProject(ctx context.Context, userID, projectID string) error {
-	_, err := s.requireMember(ctx, projectID, userID)
+func (s *Service) AuthorizeProject(ctx context.Context, actor domain.User, projectID string) error {
+	_, err := s.requireMember(ctx, projectID, actor)
 	return err
 }
 
-func (s *Service) ProjectIDs(ctx context.Context, userID string) ([]string, error) {
-	projects, err := s.repo.ListProjects(ctx, userID)
+// ProjectIDs lists the projects whose realtime events the actor may receive.
+// It mirrors ListProjects so WebSocket and gRPC subscriptions never diverge
+// from what the REST API would show.
+func (s *Service) ProjectIDs(ctx context.Context, actor domain.User) ([]string, error) {
+	projects, err := s.ListProjects(ctx, actor)
 	if err != nil {
 		return nil, err
 	}
@@ -549,8 +555,21 @@ func (s *Service) ProjectIDs(ctx context.Context, userID string) ([]string, erro
 
 func (s *Service) Ready(ctx context.Context) error { return s.repo.Ping(ctx) }
 
-func (s *Service) requireMember(ctx context.Context, projectID, userID string) (domain.ProjectRole, error) {
-	m, err := s.repo.GetMembership(ctx, projectID, userID)
+// requireMember is the single gate every project-scoped operation passes
+// through. It takes the whole actor rather than an ID because authorization
+// has two sources: project_members, and the superadmin realm role carried by
+// the access token.
+func (s *Service) requireMember(ctx context.Context, projectID string, actor domain.User) (domain.ProjectRole, error) {
+	if actor.IsSuperadmin() {
+		// A superadmin has no project_members row, so the project's existence
+		// is checked explicitly: an unknown ID must still be ErrNotFound
+		// rather than silently authorized.
+		if _, err := s.repo.GetProject(ctx, projectID); err != nil {
+			return "", err
+		}
+		return domain.RoleAdmin, nil
+	}
+	m, err := s.repo.GetMembership(ctx, projectID, actor.ID)
 	if errors.Is(err, domain.ErrNotFound) {
 		return "", domain.ErrForbidden
 	}
@@ -560,8 +579,8 @@ func (s *Service) requireMember(ctx context.Context, projectID, userID string) (
 	return m.Role, nil
 }
 
-func (s *Service) requireRole(ctx context.Context, projectID, userID string, allowed func(domain.ProjectRole) bool) (domain.ProjectRole, error) {
-	role, err := s.requireMember(ctx, projectID, userID)
+func (s *Service) requireRole(ctx context.Context, projectID string, actor domain.User, allowed func(domain.ProjectRole) bool) (domain.ProjectRole, error) {
+	role, err := s.requireMember(ctx, projectID, actor)
 	if err != nil {
 		return "", err
 	}
@@ -571,12 +590,12 @@ func (s *Service) requireRole(ctx context.Context, projectID, userID string, all
 	return role, nil
 }
 
-func (s *Service) authorizeBoard(ctx context.Context, userID, boardID string, allowed func(domain.ProjectRole) bool) (domain.Board, domain.ProjectRole, error) {
+func (s *Service) authorizeBoard(ctx context.Context, actor domain.User, boardID string, allowed func(domain.ProjectRole) bool) (domain.Board, domain.ProjectRole, error) {
 	b, err := s.repo.GetBoard(ctx, boardID)
 	if err != nil {
 		return domain.Board{}, "", err
 	}
-	role, err := s.requireMember(ctx, b.ProjectID, userID)
+	role, err := s.requireMember(ctx, b.ProjectID, actor)
 	if err != nil {
 		return domain.Board{}, "", err
 	}
@@ -586,12 +605,12 @@ func (s *Service) authorizeBoard(ctx context.Context, userID, boardID string, al
 	return b, role, nil
 }
 
-func (s *Service) authorizeTask(ctx context.Context, userID, taskID string, allowed func(domain.ProjectRole) bool) (domain.Task, domain.Board, domain.ProjectRole, error) {
+func (s *Service) authorizeTask(ctx context.Context, actor domain.User, taskID string, allowed func(domain.ProjectRole) bool) (domain.Task, domain.Board, domain.ProjectRole, error) {
 	task, err := s.repo.GetTask(ctx, taskID)
 	if err != nil {
 		return domain.Task{}, domain.Board{}, "", err
 	}
-	b, role, err := s.authorizeBoard(ctx, userID, task.BoardID, allowed)
+	b, role, err := s.authorizeBoard(ctx, actor, task.BoardID, allowed)
 	return task, b, role, err
 }
 
@@ -642,13 +661,13 @@ func (s *Service) normalizedAssignee(ctx context.Context, projectID string, cand
 		return nil, nil
 	}
 	id := strings.TrimSpace(*candidate)
-	if _, err := s.requireMember(ctx, projectID, id); err != nil {
-		if errors.Is(err, domain.ErrForbidden) {
-			return nil, &domain.ValidationError{Field: "assignee_id", Message: "assignee is not a project member"}
-		}
-		return nil, err
-	}
+	// This asks whether the assignee is a project member, not whether the
+	// caller may act, so it reads project_members directly: the superadmin
+	// role must never make an outsider assignable.
 	membership, err := s.repo.GetMembership(ctx, projectID, id)
+	if errors.Is(err, domain.ErrNotFound) {
+		return nil, &domain.ValidationError{Field: "assignee_id", Message: "assignee is not a project member"}
+	}
 	if err != nil {
 		return nil, err
 	}

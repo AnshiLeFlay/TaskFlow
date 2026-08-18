@@ -53,7 +53,18 @@ membership is re-checked as events are delivered, so notifications continue on
 the Projects page and membership changes do not require a reconnect. Realm roles identify the general type of account, while the
 authoritative role inside a particular project is stored in
 `project_members` (`admin`, `member`, or `viewer`). A project creator is inserted
-as its `admin` and remains its owner. The backend uses the least-privilege
+as its `admin` and remains its owner.
+
+The one realm role that does carry authority is `superadmin`. It grants access
+to every project without a `project_members` row: such a user sees all projects
+in the list, receives their realtime events, and acts with `admin` rights
+inside each. Because the grant is read from the access token, removing the role
+in Keycloak takes effect with the next token and leaves no membership rows to
+clean up. It deliberately stops short of the workflow: transition conditions
+(`author_only`, `assignee_only`, `project_owner_only`, `requires_comment`)
+encode the project's own process rather than who may reach it, and a superadmin
+obeys them like anyone else. A superadmin is also not assignable to tasks,
+since an assignee must be a real project member. The backend uses the least-privilege
 `taskflow-backend` Keycloak service account (`query-users`, `view-users`) to
 populate the user selector; project membership itself is still stored only in
 TaskFlow.

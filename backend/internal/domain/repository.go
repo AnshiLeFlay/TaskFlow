@@ -10,6 +10,9 @@ type Repository interface {
 
 	CreateProject(context.Context, *Project, Member) error
 	ListProjects(context.Context, string) ([]Project, error)
+	// ListAllProjects returns every project regardless of membership. Only
+	// superadmins reach it; ordinary access always goes through ListProjects.
+	ListAllProjects(context.Context) ([]Project, error)
 	GetProject(context.Context, string) (Project, error)
 	GetMembership(context.Context, string, string) (Member, error)
 	UpsertMember(context.Context, Member) error
