@@ -1,0 +1,82 @@
+# ---------------------------------------------------------------------------
+# TaskFlow deployment configuration
+# Скопируйте в deploy/deploy.conf и заполните. Файл не содержит паролей —
+# все секреты генерируются на сервере при первом запуске.
+# ---------------------------------------------------------------------------
+
+# --- Сервер ---------------------------------------------------------------
+# SSH-цель: user@host (или алиас из ~/.ssh/config)
+SSH_TARGET=root@203.0.113.10
+# Необязательный порт SSH
+SSH_PORT=22
+# Каталог на сервере, куда будет разложен проект
+REMOTE_DIR=/opt/taskflow
+
+# ---------------------------------------------------------------------------
+# РЕЖИМ РАЗВЁРТЫВАНИЯ: domain | ip
+# ---------------------------------------------------------------------------
+#
+#   domain — HTTPS через Caddy + Let's Encrypt. Рекомендуется.
+#            Нужны две записи DNS, указывающие на IP сервера.
+#            Своего домена нет? Возьмите бесплатное имя sslip.io — оно
+#            резолвится в ваш IP само, регистрировать ничего не надо:
+#              DOMAIN=203-0-113-10.sslip.io
+#              AUTH_DOMAIN=auth.203-0-113-10.sslip.io
+#            (подставьте свой IP через дефисы). Let's Encrypt такие имена
+#            обслуживает, сертификат будет настоящий.
+#
+#   ip     — голый HTTP по IP-адресу, без TLS и без Caddy.
+#            Пароли Keycloak и access-токены идут по сети ОТКРЫТЫМ ТЕКСТОМ,
+#            и любой, кто видит трафик, может угнать сессию. Годится только
+#            для внутреннего стенда/демо, не для реальных данных.
+#            В этом режиме также включается MCP_INSECURE_HTTP_HOSTS и
+#            снимается требование sslRequired у realm — бэкенд и Keycloak
+#            иначе откажутся работать по HTTP на публичном адресе.
+#
+DEPLOY_MODE=domain
+
+# --- Параметры режима domain ----------------------------------------------
+DOMAIN=taskflow.example.com
+AUTH_DOMAIN=auth.taskflow.example.com
+# E-mail для Let's Encrypt (уведомления об истечении сертификата)
+ACME_EMAIL=d.a.pominov@gmail.com
+
+# --- Параметры режима ip --------------------------------------------------
+# Публичный IP сервера. Порты: 80 — UI, 8080 — API/MCP/Swagger, 8082 — Keycloak.
+SERVER_IP=203.0.113.10
+
+# --- Администраторы (демо-пользователи alice/bob/vera не создаются) -------
+OWNER_USERNAME=denis
+OWNER_EMAIL=d.a.pominov@gmail.com
+OWNER_FIRSTNAME=Denis
+OWNER_LASTNAME=Pominov
+
+AGENT_USERNAME=athena
+AGENT_EMAIL=athena@taskflow.local
+AGENT_FIRSTNAME=Athena
+AGENT_LASTNAME=Assistant
+
+# Выдать realm-роль superadmin. Она даёт доступ ко всем проектам, минуя
+# project_members: пользователь видит их в списке, получает realtime-события и
+# действует как project admin, не будучи участником. Роль читается из токена,
+# поэтому снятие её в Keycloak действует со следующего токена и не требует
+# чистки данных. Правила переходов (author_only, project_owner_only и т.д.)
+# она НЕ обходит — это процесс проекта, а не контроль доступа.
+OWNER_SUPERADMIN=true
+AGENT_SUPERADMIN=true
+
+# --- MCP-клиент для Афины (Hermes / CRM Terra) ----------------------------
+# Регистрируется как public OAuth PKCE клиент. Redirect URI должен быть
+# ровно тем, который сообщает агент. Допустимы только https:// и
+# http://localhost:* / http://127.0.0.1:*
+ENABLE_AGENT_MCP_CLIENT=true
+AGENT_MCP_CLIENT_ID=athena-taskflow
+AGENT_MCP_REDIRECT_URIS=http://localhost:8642/api/mcp/oauth/callback/taskflow
+
+# --- Прочее ---------------------------------------------------------------
+# Опубликовать gRPC (50051) на 127.0.0.1 сервера — для доступа по SSH-туннелю
+EXPOSE_GRPC_LOCALHOST=true
+# Настроить ufw. Осторожно: может отрезать нестандартный SSH-порт.
+SETUP_FIREWALL=false
+# Уровень логирования бэкенда: debug|info|warn|error
+LOG_LEVEL=info

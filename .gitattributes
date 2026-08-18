@@ -1,0 +1,7 @@
+# Эти файлы исполняются в Linux-контейнерах и на сервере. При checkout на
+# Windows с core.autocrlf=true они иначе получают CRLF, после чего shell
+# падает на `\r`, а Makefile — на целях. Фиксируем LF независимо от платформы.
+*.sh        text eol=lf
+Makefile    text eol=lf
+Dockerfile  text eol=lf
+*.conf      text eol=lf
