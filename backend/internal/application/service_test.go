@@ -89,10 +89,13 @@ func (f *fakeRepository) ListMembers(_ context.Context, projectID string) ([]dom
 	})
 	return out, nil
 }
-func (f *fakeRepository) CreateBoard(_ context.Context, b *domain.Board, statuses []domain.Status) error {
+func (f *fakeRepository) CreateBoard(_ context.Context, b *domain.Board, statuses []domain.Status, rules []domain.TransitionRule) error {
 	f.boards[b.ID] = *b
 	for _, s := range statuses {
 		f.statuses[s.ID] = s
+	}
+	for _, r := range rules {
+		f.rules[ruleKey(r.BoardID, r.FromStatusID, r.ToStatusID)] = r
 	}
 	return nil
 }

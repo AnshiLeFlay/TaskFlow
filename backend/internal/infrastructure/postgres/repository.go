@@ -122,7 +122,7 @@ func (r *Repository) ListMembers(ctx context.Context, projectID string) ([]domai
 	return members, mapError(rows.Err())
 }
 
-func (r *Repository) CreateBoard(ctx context.Context, board *domain.Board, statuses []domain.Status) error {
+func (r *Repository) CreateBoard(ctx context.Context, board *domain.Board, statuses []domain.Status, rules []domain.TransitionRule) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return mapError(err)
@@ -134,6 +134,16 @@ func (r *Repository) CreateBoard(ctx context.Context, board *domain.Board, statu
 	}
 	for _, status := range statuses {
 		_, err = tx.Exec(ctx, `INSERT INTO statuses (id,board_id,name,position,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6)`, status.ID, status.BoardID, status.Name, status.Position, status.CreatedAt, status.UpdatedAt)
+		if err != nil {
+			return mapError(err)
+		}
+	}
+	for _, rule := range rules {
+		conditions, marshalErr := json.Marshal(rule.Conditions)
+		if marshalErr != nil {
+			return fmt.Errorf("encode rule conditions: %w", marshalErr)
+		}
+		_, err = tx.Exec(ctx, `INSERT INTO transition_rules (id,board_id,from_status_id,to_status_id,conditions,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, rule.ID, rule.BoardID, rule.FromStatusID, rule.ToStatusID, conditions, rule.CreatedAt, rule.UpdatedAt)
 		if err != nil {
 			return mapError(err)
 		}

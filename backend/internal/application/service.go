@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -168,8 +169,13 @@ func (s *Service) CreateBoard(ctx context.Context, actor domain.User, projectID 
 	now := s.now()
 	b := domain.Board{ID: s.newID(), ProjectID: projectID, Name: name, Description: description, CreatedAt: now, UpdatedAt: now}
 	inputs := cmd.Statuses
-	if len(inputs) == 0 {
-		inputs = []StatusInput{{Name: "To Do", Position: 0}, {Name: "In Progress", Position: 1}, {Name: "Done", Position: 2}}
+	// A board with statuses but no transition rules cannot move a single task,
+	// because every transition needs a rule for its exact status pair. The
+	// default preset therefore ships both; a caller that names its own
+	// statuses is designing a workflow and wires the rules itself.
+	preset := len(inputs) == 0
+	if preset {
+		inputs = defaultStatuses()
 	}
 	statuses := make([]domain.Status, 0, len(inputs))
 	seenPositions := make(map[int]struct{}, len(inputs))
@@ -191,10 +197,42 @@ func (s *Service) CreateBoard(ctx context.Context, actor domain.User, projectID 
 		seenPositions[position] = struct{}{}
 		statuses = append(statuses, domain.Status{ID: s.newID(), BoardID: b.ID, Name: statusName, Position: position, CreatedAt: now, UpdatedAt: now})
 	}
-	if err := s.repo.CreateBoard(ctx, &b, statuses); err != nil {
+	rules := make([]domain.TransitionRule, 0)
+	if preset {
+		rules = s.presetRules(statuses, now)
+	}
+	if err := s.repo.CreateBoard(ctx, &b, statuses, rules); err != nil {
 		return domain.BoardAggregate{}, err
 	}
-	return domain.BoardAggregate{Board: b, Statuses: statuses, Tasks: []domain.Task{}, Rules: []domain.TransitionRule{}}, nil
+	return domain.BoardAggregate{Board: b, Statuses: statuses, Tasks: []domain.Task{}, Rules: rules}, nil
+}
+
+// defaultStatuses is the preset column set: the smallest board that models a
+// piece of work being picked up and finished.
+func defaultStatuses() []StatusInput {
+	return []StatusInput{
+		{Name: "To Do", Position: 0},
+		{Name: "In Progress", Position: 1},
+		{Name: "Done", Position: 2},
+	}
+}
+
+// presetRules links the preset statuses in both directions along their order,
+// so work can advance and also be sent back, but cannot skip a column. No
+// conditions are attached: the preset stays permissive and a project tightens
+// it afterwards.
+func (s *Service) presetRules(statuses []domain.Status, now time.Time) []domain.TransitionRule {
+	ordered := append([]domain.Status(nil), statuses...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Position < ordered[j].Position })
+	rules := make([]domain.TransitionRule, 0, 2*(len(ordered)-1))
+	for i := 0; i+1 < len(ordered); i++ {
+		from, to := ordered[i], ordered[i+1]
+		rules = append(rules,
+			domain.TransitionRule{ID: s.newID(), BoardID: from.BoardID, FromStatusID: from.ID, ToStatusID: to.ID, CreatedAt: now, UpdatedAt: now},
+			domain.TransitionRule{ID: s.newID(), BoardID: from.BoardID, FromStatusID: to.ID, ToStatusID: from.ID, CreatedAt: now, UpdatedAt: now},
+		)
+	}
+	return rules
 }
 
 func (s *Service) ListBoards(ctx context.Context, actor domain.User, projectID string) ([]domain.Board, error) {

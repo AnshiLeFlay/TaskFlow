@@ -18,7 +18,10 @@ type Repository interface {
 	UpsertMember(context.Context, Member) error
 	ListMembers(context.Context, string) ([]Member, error)
 
-	CreateBoard(context.Context, *Board, []Status) error
+	// CreateBoard persists a board with its statuses and transition rules in
+	// one transaction. Rules are part of the same write because a board whose
+	// statuses exist without them cannot move a single task.
+	CreateBoard(context.Context, *Board, []Status, []TransitionRule) error
 	ListBoards(context.Context, string) ([]Board, error)
 	GetBoard(context.Context, string) (Board, error)
 	GetBoardAggregate(context.Context, string) (BoardAggregate, error)
