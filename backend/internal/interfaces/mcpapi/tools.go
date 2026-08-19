@@ -65,11 +65,29 @@ create_rule. Editing a task's other fields uses update_task and is unrelated.
 
 Creating a project: create_project gives you an empty project, and a project
 without a board holds nothing. Call create_board next. Omit its statuses to get
-the standard preset - To Do, In Progress, Done, with rules linking neighbours
-in both directions - which is a board that works immediately. Supply statuses
-only when the workflow is genuinely different, and then add every rule with
-create_rule yourself, because a board with statuses and no rules cannot move
-any task.
+the standard preset, which is a board that works immediately:
+
+  Backlog     everything that has arrived but nobody has committed to yet
+  To Do       accepted, waiting to be started
+  In Progress being worked on
+  Done        finished
+  Canceled    dropped: a duplicate, a mistake, or no longer needed
+
+Create new tasks in Backlog, not in To Do. Moving a task out of Backlog is what
+records that it was accepted, and it is the only thing separating how long work
+waited from how long it took. Putting tasks straight into To Do destroys that
+distinction and cannot be reconstructed afterwards.
+
+The preset allows each column to move to the next and back again, and allows
+Backlog, To Do and In Progress to move to Canceled. Two transitions are absent
+on purpose: Done cannot become Canceled, because finished work cannot be
+un-finished - if it turns out to have been unnecessary, that is a new task. And
+Canceled returns only to Backlog, never straight into a working column, so a
+revived task re-enters through the same intake as everything else.
+
+Supply statuses only when the workflow is genuinely different, and then add
+every rule with create_rule yourself, because a board with statuses and no
+rules cannot move any task.
 
 Permissions come from project membership, not from the account itself: admin
 manages members, statuses and rules, member works with tasks, viewer only
@@ -156,7 +174,7 @@ func registerProjectTools(server *mcp.Server, service Service) {
 	addTool(server, writeTool("add_or_update_project_member", "Add a user to a project or update the user's project role.", false, true), func(ctx context.Context, actor domain.User, input AddOrUpdateProjectMemberInput) (any, error) {
 		return service.AddMember(ctx, actor, input.ProjectID, application.AddMemberCommand{UserID: input.UserID, Role: input.Role})
 	})
-	addTool(server, writeTool("create_board", "Create a board in a project. Omit statuses to get the standard preset (To Do, In Progress, Done) with transition rules already linking neighbouring columns both ways. Supplying statuses creates them without any rules, so add each rule with create_rule.", false, false), func(ctx context.Context, actor domain.User, input CreateBoardInput) (any, error) {
+	addTool(server, writeTool("create_board", "Create a board in a project. Omit statuses to get the standard preset (Backlog, To Do, In Progress, Done, Canceled) with its transition rules already in place, including cancelling from any working column. Supplying statuses creates them without any rules, so add each rule with create_rule.", false, false), func(ctx context.Context, actor domain.User, input CreateBoardInput) (any, error) {
 		statuses := make([]application.StatusInput, 0, len(input.Statuses))
 		for _, status := range input.Statuses {
 			statuses = append(statuses, application.StatusInput{Name: status.Name, Position: status.Position})

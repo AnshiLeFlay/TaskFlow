@@ -36,6 +36,44 @@ All enabled conditions use logical AND. An object with all flags false and no
 `admin` or `member` to traverse that configured edge. A `viewer` cannot mutate a
 task even if a condition would otherwise pass.
 
+## Default board preset
+
+A board created without explicit statuses gets a preset that is usable
+immediately, rather than columns with no way to move between them:
+
+| Column | Meaning |
+| --- | --- |
+| `Backlog` | arrived, nobody has committed to it yet |
+| `To Do` | accepted, waiting to start |
+| `In Progress` | being worked on |
+| `Done` | finished |
+| `Canceled` | dropped: a duplicate, a mistake, or no longer needed |
+
+`Backlog` is separate from `To Do` because the move between them is the moment
+work was accepted. It is the only record that separates how long a task waited
+from how long it took, and it cannot be reconstructed later, so tasks are
+created in `Backlog`. `Canceled` exists so that abandoned work has an ending
+other than `Done`; without it, `Done` silently comes to mean "no longer on the
+board" and stops being a measure of anything.
+
+Ten rules are created, none with conditions: each column to the next and back
+again, `Backlog`, `To Do` and `In Progress` to `Canceled`, and `Canceled` back
+to `Backlog`.
+
+Two absences are deliberate rather than oversights:
+
+- **No `Done -> Canceled`.** Finished work cannot be un-finished. Deciding
+  afterwards that it was unnecessary is a new task, not an undo.
+- **No `Canceled` into a working column.** A revived task re-enters through
+  `Backlog`, so it passes the same acceptance point as everything else and its
+  timings stay comparable.
+
+Supplying statuses explicitly creates them with no rules at all. That caller is
+designing a workflow, and inventing transitions for it would be guesswork.
+
+The preset applies only at creation. Boards that already exist are untouched,
+and boards created before it still need their rules added by hand.
+
 ## Evaluation algorithm
 
 1. Authenticate the actor and load their project membership.

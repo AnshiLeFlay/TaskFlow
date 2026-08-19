@@ -312,8 +312,11 @@ func TestCreateBoardProvidesDefaultsAndRejectsAmbiguousPositions(t *testing.T) {
 
 	board, err := service.CreateBoard(context.Background(), domain.User{ID: "admin"}, "project", CreateBoardCommand{Name: "Main"})
 	require.NoError(t, err)
-	require.Len(t, board.Statuses, 3)
-	assert.Equal(t, []string{"To Do", "In Progress", "Done"}, []string{board.Statuses[0].Name, board.Statuses[1].Name, board.Statuses[2].Name})
+	names := make([]string, 0, len(board.Statuses))
+	for _, status := range board.Statuses {
+		names = append(names, status.Name)
+	}
+	assert.Equal(t, []string{"Backlog", "To Do", "In Progress", "Done", "Canceled"}, names)
 	_, err = service.CreateBoard(context.Background(), domain.User{ID: "admin"}, "project", CreateBoardCommand{Name: "Bad", Statuses: []StatusInput{{Name: "A", Position: 0}, {Name: "B", Position: 0}}})
 	assert.ErrorIs(t, err, domain.ErrInvalid)
 }

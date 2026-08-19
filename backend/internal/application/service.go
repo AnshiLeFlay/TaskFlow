@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -207,30 +206,68 @@ func (s *Service) CreateBoard(ctx context.Context, actor domain.User, projectID 
 	return domain.BoardAggregate{Board: b, Statuses: statuses, Tasks: []domain.Task{}, Rules: rules}, nil
 }
 
-// defaultStatuses is the preset column set: the smallest board that models a
-// piece of work being picked up and finished.
+// defaultStatuses is the preset column set. Backlog and Canceled are not
+// decoration: work arriving automatically has to land somewhere before anyone
+// commits to it, and work that turns out to be wrong needs an ending that is
+// not Done, or Done stops meaning anything. Separating Backlog from To Do also
+// records the moment work was accepted, which is what tells waiting time apart
+// from working time.
 func defaultStatuses() []StatusInput {
 	return []StatusInput{
-		{Name: "To Do", Position: 0},
-		{Name: "In Progress", Position: 1},
-		{Name: "Done", Position: 2},
+		{Name: "Backlog", Position: 0},
+		{Name: "To Do", Position: 1},
+		{Name: "In Progress", Position: 2},
+		{Name: "Done", Position: 3},
+		{Name: "Canceled", Position: 4},
 	}
 }
 
-// presetRules links the preset statuses in both directions along their order,
-// so work can advance and also be sent back, but cannot skip a column. No
+// presetTransitions is the default workflow written as status names rather
+// than derived from column order, because the shape is not a straight line:
+// Canceled is a terminal side state reachable from any working column, not the
+// column that follows Done.
+//
+// Two absences are deliberate. There is no Done to Canceled: finished work
+// cannot be un-finished, and deciding it was unnecessary is a new task rather
+// than an undo. And Canceled returns only to Backlog, never straight into the
+// working columns, so anything revived re-enters through the same intake and
+// its timings stay comparable with everything else.
+var presetTransitions = [][2]string{
+	{"Backlog", "To Do"},
+	{"To Do", "In Progress"},
+	{"In Progress", "Done"},
+
+	{"To Do", "Backlog"},
+	{"In Progress", "To Do"},
+	{"Done", "In Progress"},
+
+	{"Backlog", "Canceled"},
+	{"To Do", "Canceled"},
+	{"In Progress", "Canceled"},
+
+	{"Canceled", "Backlog"},
+}
+
+// presetRules resolves presetTransitions against the statuses just created. No
 // conditions are attached: the preset stays permissive and a project tightens
 // it afterwards.
 func (s *Service) presetRules(statuses []domain.Status, now time.Time) []domain.TransitionRule {
-	ordered := append([]domain.Status(nil), statuses...)
-	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Position < ordered[j].Position })
-	rules := make([]domain.TransitionRule, 0, 2*(len(ordered)-1))
-	for i := 0; i+1 < len(ordered); i++ {
-		from, to := ordered[i], ordered[i+1]
-		rules = append(rules,
-			domain.TransitionRule{ID: s.newID(), BoardID: from.BoardID, FromStatusID: from.ID, ToStatusID: to.ID, CreatedAt: now, UpdatedAt: now},
-			domain.TransitionRule{ID: s.newID(), BoardID: from.BoardID, FromStatusID: to.ID, ToStatusID: from.ID, CreatedAt: now, UpdatedAt: now},
-		)
+	byName := make(map[string]domain.Status, len(statuses))
+	for _, status := range statuses {
+		byName[status.Name] = status
+	}
+	rules := make([]domain.TransitionRule, 0, len(presetTransitions))
+	for _, transition := range presetTransitions {
+		from, fromExists := byName[transition[0]]
+		to, toExists := byName[transition[1]]
+		if !fromExists || !toExists {
+			continue
+		}
+		rules = append(rules, domain.TransitionRule{
+			ID: s.newID(), BoardID: from.BoardID,
+			FromStatusID: from.ID, ToStatusID: to.ID,
+			CreatedAt: now, UpdatedAt: now,
+		})
 	}
 	return rules
 }
