@@ -30,6 +30,10 @@ type Config struct {
 	MCPAudience             string
 	MCPAllowedOrigins       []string
 	MCPInsecureHTTPHosts    []string
+	MCPServiceToken         string
+	MCPServiceSubject       string
+	MCPServiceUsername      string
+	MCPServiceRoles         []string
 	ShutdownTimeout         time.Duration
 	LogLevel                slog.Level
 }
@@ -69,6 +73,10 @@ func Load() (Config, error) {
 		MCPAudience:             env("MCP_AUDIENCE", mcpPublicURL),
 		MCPAllowedOrigins:       envCSV("MCP_ALLOWED_ORIGINS", corsOrigins),
 		MCPInsecureHTTPHosts:    envCSV("MCP_INSECURE_HTTP_HOSTS", ""),
+		MCPServiceToken:         strings.TrimSpace(os.Getenv("MCP_SERVICE_TOKEN")),
+		MCPServiceSubject:       strings.TrimSpace(os.Getenv("MCP_SERVICE_SUBJECT")),
+		MCPServiceUsername:      env("MCP_SERVICE_USERNAME", "mcp-service"),
+		MCPServiceRoles:         envCSV("MCP_SERVICE_ROLES", ""),
 		ShutdownTimeout:         envDuration("SHUTDOWN_TIMEOUT", 10*time.Second),
 		LogLevel:                logLevel,
 	}
@@ -84,6 +92,16 @@ func Load() (Config, error) {
 		}
 		if cfg.MCPAudience != cfg.MCPPublicURL {
 			return Config{}, fmt.Errorf("MCP_AUDIENCE must equal MCP_PUBLIC_URL")
+		}
+		// The static service token is an escape hatch for MCP clients that
+		// cannot run the OAuth flow. It is off unless set, and refuses to
+		// start half-configured: a token without a subject would authenticate
+		// a caller TaskFlow cannot attribute any action to.
+		if cfg.MCPServiceToken != "" && cfg.MCPServiceSubject == "" {
+			return Config{}, fmt.Errorf("MCP_SERVICE_SUBJECT is required when MCP_SERVICE_TOKEN is set")
+		}
+		if cfg.MCPServiceToken == "" && cfg.MCPServiceSubject != "" {
+			return Config{}, fmt.Errorf("MCP_SERVICE_TOKEN is required when MCP_SERVICE_SUBJECT is set")
 		}
 	}
 	return cfg, nil

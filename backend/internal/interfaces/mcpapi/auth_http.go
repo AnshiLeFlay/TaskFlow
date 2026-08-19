@@ -2,6 +2,8 @@ package mcpapi
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +18,12 @@ import (
 )
 
 const DefaultOAuthScope = "taskflow:mcp"
+
+// MinServiceTokenLength is the shortest accepted static service token. A
+// service token is a bearer credential that TaskFlow validates itself, so its
+// only defence is length: unlike a JWT it carries no signature, expiry, or
+// issuer to fall back on.
+const MinServiceTokenLength = 32
 
 type actorContextKey struct{}
 
@@ -38,6 +46,12 @@ type HTTPAuthOptions struct {
 	AllowedOrigins      []string
 	InsecureHTTPHosts   []string
 	Scope               string
+	// ServiceToken enables a static bearer credential for MCP clients that
+	// cannot run the OAuth authorization code flow. It is disabled unless set.
+	ServiceToken string
+	// ServiceActor is the identity such a client acts as. Its roles decide
+	// what the token can reach; project RBAC is unchanged.
+	ServiceActor domain.User
 }
 
 type ProtectedResourceMetadata struct {
@@ -52,11 +66,14 @@ type ProtectedResourceMetadata struct {
 // remains behind the TokenValidator port, so main can use a verifier configured
 // with the MCP audience instead of the web application's audience.
 type HTTPAuth struct {
-	validator   application.TokenValidator
-	metadata    ProtectedResourceMetadata
-	metadataURL string
-	origins     map[string]struct{}
-	scope       string
+	validator    application.TokenValidator
+	metadata     ProtectedResourceMetadata
+	metadataURL  string
+	origins      map[string]struct{}
+	scope        string
+	serviceHash  [sha256.Size]byte
+	serviceActor domain.User
+	serviceSet   bool
 }
 
 func NewHTTPAuth(validator application.TokenValidator, options HTTPAuthOptions) (*HTTPAuth, error) {
@@ -79,8 +96,23 @@ func NewHTTPAuth(validator application.TokenValidator, options HTTPAuthOptions) 
 	if err != nil {
 		return nil, err
 	}
+	serviceToken := strings.TrimSpace(options.ServiceToken)
+	var serviceHash [sha256.Size]byte
+	serviceSet := serviceToken != ""
+	if serviceSet {
+		if len(serviceToken) < MinServiceTokenLength {
+			return nil, fmt.Errorf("MCP service token must be at least %d characters", MinServiceTokenLength)
+		}
+		if strings.TrimSpace(options.ServiceActor.ID) == "" {
+			return nil, errors.New("MCP service token requires a subject to act as")
+		}
+		serviceHash = sha256.Sum256([]byte(serviceToken))
+	}
 	return &HTTPAuth{
-		validator: validator,
+		validator:    validator,
+		serviceHash:  serviceHash,
+		serviceActor: options.ServiceActor,
+		serviceSet:   serviceSet,
 		metadata: ProtectedResourceMetadata{
 			Resource:               resource,
 			AuthorizationServers:   []string{authorizationServer},
@@ -146,13 +178,30 @@ func (a *HTTPAuth) Protect(next http.Handler) http.Handler {
 			a.writeUnauthorized(w, false)
 			return
 		}
-		actor, err := a.validator.Verify(r.Context(), rawToken)
-		if err != nil || actor.ID == "" {
-			a.writeUnauthorized(w, true)
-			return
+		actor, ok := a.serviceActorFor(rawToken)
+		if !ok {
+			actor, err = a.validator.Verify(r.Context(), rawToken)
+			if err != nil || actor.ID == "" {
+				a.writeUnauthorized(w, true)
+				return
+			}
 		}
 		next.ServeHTTP(w, r.WithContext(WithActor(r.Context(), actor)))
 	})
+}
+
+// serviceActorFor matches the presented bearer against the configured static
+// service token. Both sides are hashed first so the constant-time comparison
+// cannot leak the token's length, and an unset token never matches.
+func (a *HTTPAuth) serviceActorFor(rawToken string) (domain.User, bool) {
+	if !a.serviceSet {
+		return domain.User{}, false
+	}
+	presented := sha256.Sum256([]byte(rawToken))
+	if subtle.ConstantTimeCompare(presented[:], a.serviceHash[:]) != 1 {
+		return domain.User{}, false
+	}
+	return a.serviceActor, true
 }
 
 func (a *HTTPAuth) allowOrigin(w http.ResponseWriter, r *http.Request) bool {

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/example/taskflow/backend/internal/application"
+	"github.com/example/taskflow/backend/internal/domain"
 	"github.com/example/taskflow/backend/internal/infrastructure/auth"
 	"github.com/example/taskflow/backend/internal/infrastructure/migrations"
 	"github.com/example/taskflow/backend/internal/infrastructure/postgres"
@@ -94,6 +95,12 @@ func run(logger *slog.Logger, cfg config.Config) error {
 			AuthorizationServer: cfg.KeycloakIssuerURL,
 			AllowedOrigins:      cfg.MCPAllowedOrigins,
 			InsecureHTTPHosts:   cfg.MCPInsecureHTTPHosts,
+			ServiceToken:        cfg.MCPServiceToken,
+			ServiceActor: domain.User{
+				ID:       cfg.MCPServiceSubject,
+				Username: cfg.MCPServiceUsername,
+				Roles:    cfg.MCPServiceRoles,
+			},
 		})
 		if err != nil {
 			return fmt.Errorf("configure MCP HTTP authorization: %w", err)
