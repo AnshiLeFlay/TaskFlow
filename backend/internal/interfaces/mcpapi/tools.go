@@ -42,6 +42,41 @@ type Service interface {
 
 var _ Service = (*application.Service)(nil)
 
+// serverInstructions is returned to clients in the initialize response. Tool
+// and field descriptions can say what one call does; they cannot convey how
+// the pieces relate, which is where clients otherwise fail: they invent status
+// names, skip the board layer, or assume a task can be dragged anywhere.
+const serverInstructions = `TaskFlow manages projects, Kanban boards and tasks.
+
+Structure: a project has members and one or more boards. A board owns ordered
+statuses (columns) and transition rules. A task lives on one board and sits in
+one status.
+
+Start with list_projects, then get_board for the board you intend to work on.
+get_board returns statuses, rules, tasks and comments in one call, and its IDs
+are what every other tool expects. Never guess an ID or a status name.
+
+Moving a task is the one operation with a rule attached. transition_task
+succeeds only when a transition rule exists for that exact ordered status pair
+and every condition on it passes; conditions can require the task's author,
+its assignee, the project owner, at least one comment, or a given project role.
+A missing rule is a configuration gap, not a permission problem: create it with
+create_rule. Editing a task's other fields uses update_task and is unrelated.
+
+Creating a project: create_project gives you an empty project, and a project
+without a board holds nothing. Call create_board next. Omit its statuses to get
+the standard preset - To Do, In Progress, Done, with rules linking neighbours
+in both directions - which is a board that works immediately. Supply statuses
+only when the workflow is genuinely different, and then add every rule with
+create_rule yourself, because a board with statuses and no rules cannot move
+any task.
+
+Permissions come from project membership, not from the account itself: admin
+manages members, statuses and rules, member works with tasks, viewer only
+reads. Adding a user to a project is add_or_update_project_member. There are no
+delete operations for tasks, projects, boards or members - the TaskFlow domain
+has none.`
+
 // NewServer constructs the MCP feature server. HTTP transport and OAuth are
 // deliberately composed outside this function; every handler reads the actor
 // installed in the individual request context by HTTPAuth.Protect.
@@ -49,7 +84,7 @@ func NewServer(service Service) *mcp.Server {
 	if service == nil {
 		panic("mcpapi: nil application service")
 	}
-	server := mcp.NewServer(&mcp.Implementation{Name: serverName, Version: serverVersion}, nil)
+	server := mcp.NewServer(&mcp.Implementation{Name: serverName, Version: serverVersion}, &mcp.ServerOptions{Instructions: serverInstructions})
 	registerNavigationTools(server, service)
 	registerProjectTools(server, service)
 	registerWorkflowTools(server, service)
@@ -121,7 +156,7 @@ func registerProjectTools(server *mcp.Server, service Service) {
 	addTool(server, writeTool("add_or_update_project_member", "Add a user to a project or update the user's project role.", false, true), func(ctx context.Context, actor domain.User, input AddOrUpdateProjectMemberInput) (any, error) {
 		return service.AddMember(ctx, actor, input.ProjectID, application.AddMemberCommand{UserID: input.UserID, Role: input.Role})
 	})
-	addTool(server, writeTool("create_board", "Create a board and its initial workflow statuses in a project.", false, false), func(ctx context.Context, actor domain.User, input CreateBoardInput) (any, error) {
+	addTool(server, writeTool("create_board", "Create a board in a project. Omit statuses to get the standard preset (To Do, In Progress, Done) with transition rules already linking neighbouring columns both ways. Supplying statuses creates them without any rules, so add each rule with create_rule.", false, false), func(ctx context.Context, actor domain.User, input CreateBoardInput) (any, error) {
 		statuses := make([]application.StatusInput, 0, len(input.Statuses))
 		for _, status := range input.Statuses {
 			statuses = append(statuses, application.StatusInput{Name: status.Name, Position: status.Position})
